@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "runtime": "node",
+  "files": {
+    ".harness/bin/c2h.mjs": "b79378abc0238471ca11a3b198d6b299c728c025efe3df6126fa644b3273a63c",
+    ".harness/bin/runtime.mjs": "bbcb9a95e01a97382d98166beed34602b5755b410e2fe0dbedbdf56086f7bcc9",
+    ".harness/bin/launch.mjs": "6bac79471346ca530236349f74bc0c884e9dac26e189581114a83551fbd2aff2",
+    ".pi/extensions/c2h-reviewer.ts": "0dcc6d3553e3b96f69efc1bd320dc0d94bf4e87f47ac22426f7bf4fcfd5a0ee7",
+    ".pi/prompts/plan.md": "28187a9876ed29f3c98efa8ae29c6c8bd6cdd334e644139e1ef604b5237c47c5",
+    ".harness/commands/reviewer.md": "ba82ccf161ce63da60bdeb08254e966c6e41d551effc27355b678727573f7af2",
+    ".claude/skills/executor/SKILL.md": "e5e5779222bf4ce3ad9f7cc201f5fa0901b7382615c68e57fea6113186025615",
+    ".claude/skills/harness-review/SKILL.md": "90ad9e40945570daf5c293039d5a67d2513a15d0cc23f7f529690523a0d78f96",
+    ".claude/skills/accept/SKILL.md": "eee3f18e6a00272a1d07d9fc6ab705ea3ef8d146c842fb2dfd522670b71834d9",
+    ".claude/skills/feedback/SKILL.md": "34493680df9d091e2b02458f09251970aae9c3a021e58ab76028f65196b1821d",
+    ".harness/roles/planner.md": "e2c990708e0d29cf99ea4219b1fe85e5d62b32c371dfeb7c7a2d3cbebdbe1fc0",
+    ".harness/roles/executor.md": "651b1075bd4b463df9532224ed1f066a2faa4692a8492bb88b4651e25c76a1c9",
+    ".harness/roles/reviewer.md": "f0c26dc5283023dbc60f4120451e6be5f1415462c1af27a115acbb119a5faea5",
+    ".harness/WORKFLOW.md": "9d6f630d645b5c35d9c43131fc46e47e577069c66eed20ff89d808994704b852",
+    ".harness/FLOW.md": "eb7a92c8ea5ffc6548d019018e443007d472bdb67268b7bd1338eead844c0306",
+    ".harness/STORY.md": "471283e9e3c2428cc53c749cb5601edc94846656604baf8c05ca97003b9ba335",
+    ".harness/RESUME.md": "c066b569218452142f7ea0f3e866145bb95ee57a0d6d4b8eff74bb1b7aeb0a76",
+    ".claude/commands/harness-planner.md": "6997526008ee36929aa9dc64e0bb1947b972338a13962ff4ef17f18d98dec48a",
+    ".claude/commands/harness-executor.md": "fb5409fcd9d5473f426d170312038eac801a90aa6408b97810062311cb87a55b",
+    ".claude/commands/harness-reviewer.md": "fc08d08da4157170eccab7cf08815d0d2dbd94c8181415bdac1732e4e7c4a00d",
+    ".claude/commands/harness-resume.md": "72f1233974921280a06cd91b3b1cac8b26ba2e3c58e079c64c16c138390b1b55",
+    ".pi/prompts/harness-planner.md": "6997526008ee36929aa9dc64e0bb1947b972338a13962ff4ef17f18d98dec48a",
+    ".pi/prompts/harness-executor.md": "fb5409fcd9d5473f426d170312038eac801a90aa6408b97810062311cb87a55b",
+    ".pi/prompts/harness-reviewer.md": "fc08d08da4157170eccab7cf08815d0d2dbd94c8181415bdac1732e4e7c4a00d",
+    ".pi/prompts/harness-resume.md": "72f1233974921280a06cd91b3b1cac8b26ba2e3c58e079c64c16c138390b1b55"
+  }
+}

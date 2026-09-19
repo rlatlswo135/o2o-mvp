@@ -1,0 +1,21 @@
+packages:
+  - client
+  - server
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@^1.0.0
+  vite-plus: ^1.0.0
+  typescript: ^7.0.0
+  "@types/node": ^24.0.0
+allowBuilds:
+  esbuild: true
+  lightningcss: true
+onlyBuiltDependencies:
+  - esbuild
+  - lightningcss
+overrides:
+  vite@*: "catalog:"
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: "*"
