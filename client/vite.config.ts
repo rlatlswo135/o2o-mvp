@@ -1,65 +1,10 @@
-import { defineConfig, lazyPlugins } from "vite-plus";
+import stylex from "@stylexjs/unplugin";
 import { devtools } from "@tanstack/devtools-vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
-import stylex from "@stylexjs/unplugin";
+import { defineConfig, lazyPlugins } from "vite-plus";
 
 const config = defineConfig({
-  fmt: {
-    sortImports: {
-      groups: [
-        "type-import",
-        ["value-builtin", "value-external"],
-        "type-internal",
-        "value-internal",
-        ["type-parent", "type-sibling", "type-index"],
-        ["value-parent", "value-sibling", "value-index"],
-        "unknown",
-      ],
-    },
-  },
-  lint: {
-    options: { typeAware: true, typeCheck: true },
-    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
-    plugins: ["react", "react-perf", "promise", "import", "vitest"],
-    rules: {
-      // react
-      "react/refs": "error",
-      "react/button-has-type": "error",
-      "react/no-array-index-key": "error",
-      "react/unsupported-syntax": "error",
-      "react/static-components": "error",
-      "react/set-state-in-effect": "error",
-      "react/memo-dependencies": "error",
-      "react/jsx-props-no-spread-multi": "error",
-      "react/jsx-no-useless-fragment": "error",
-      "react/jsx-no-duplicate-props": "error",
-      "react/jsx-key": "error",
-      "react/jsx-handler-names": "error",
-      // react-perf
-      "react-perf/jsx-no-jsx-as-prop": "error",
-      "react-perf/jsx-no-new-array-as-prop": "error",
-      "react-perf/jsx-no-new-function-as-prop": "error",
-      "react-perf/jsx-no-new-object-as-prop": "error",
-      // promise
-      "promise/avoid-new": "warn",
-      "promise/always-return": "warn",
-      "promise/no-multiple-resolved": "warn",
-      // import
-      "import/namespace": "error",
-      "import/newline-after-import": "error",
-      "import/no-absolute-path": "error",
-      "import/no-cycle": "error",
-      "import/consistent-type-specifier-style": "warn",
-      "import/default": "warn",
-      "import/export": "warn",
-      "import/max-dependencies": ["warn", { max: 10 }],
-      "import/no-default-export": "warn",
-      "import/no-duplicates": "warn",
-      // vite-plus
-      "vite-plus/prefer-vite-plus-imports": "error",
-    },
-  },
   resolve: { tsconfigPaths: true },
   plugins: lazyPlugins(() => [devtools(), tanstackStart(), stylex.vite(), viteReact()]),
 });
