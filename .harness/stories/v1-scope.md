@@ -107,16 +107,16 @@
 - 사장님 화면 디자인은 시안 ② 잉크 블루 방향을 기준으로 한다: 좁은 메뉴 레일, 밀도 높은 목록, 우측 등록 영역. 사용자는 이 구조에서 테마 변경의 시각적 차이가 더 뚜렷하다는 점을 선호한다.
 - 시안 선택은 디자인 방향 합의이며, 블루 색상 고정이나 모든 화면의 우측 패널 강제를 뜻하지 않는다. 테마 변경은 시각적 표현만 바꾸고 기능·배치는 유지한다.
 - 시안 이미지 5장과 선택 근거는 [디자인 기준](../design/README.md)에 보관한다. 새 세션의 UI 작업 전에 해당 문서와 선택 이미지를 확인한다.
-- 공통 컴포넌트는 FE 내부 `ui/`에 필요한 시점에만 둔다. 별도 디자인 시스템 패키지는 만들지 않는다. 공통 UI 시안을 출발점으로 삼되 세부 디자인은 구현 시 사용자 리뷰로 조정한다.
-- V1 프런트 기본 스택: React + Vite + TypeScript, TanStack Router, TanStack Query, Zod, StyleX, Oxlint.
+- 업무 코드·도메인 UI는 `client/src/features/<feature>/`, 도메인 독립 범용 UI·공통 hooks는 `client/src/shared/`에 둔다. 사용자가 요청한 공통 컴포넌트는 처음부터 shared/ui에서 먼저 개발하며 두 번째 feature 소비자 구현을 선행 조건으로 요구하지 않는다. `client/src/routes/`는 페이지 조립·파일 기반 라우팅에 집중한다. [FE 구조 계획](S001/fe-structure.md)을 따른다. 별도 디자인 시스템 패키지는 만들지 않는다.
+- 현재 프런트 스캐폴딩: React 19 + TypeScript + Vite+ + TanStack Start·파일 기반 TanStack Router + StyleX + flame-ui. TanStack Query·Zod는 이전 사용 계획이며 현재 package.json에 없다. 사용 여부·설치는 별도 확인한다.
 - nuqs는 제외한다. URL 상태는 TanStack Router의 search params로 관리한다.
 - Zustand, TanStack Table, TanStack Form은 선설치하지 않는다. 필요한 시점에 사용자가 직접 설치하며 AI는 임의로 추가하지 않는다.
-- 서버 데이터는 Query, URL에 둘 날짜·필터·페이지는 Router, 일시적인 UI·입력 상태는 로컬로 관리한다. 개인정보는 URL에 넣지 않는다.
+- URL에 둘 날짜·필터·페이지는 Router, 일시적인 UI·입력 상태는 기능 내부 로컬로 관리한다. 개인정보는 URL에 넣지 않는다. 서버 데이터 접근은 해당 feature에 두며 Query 도입은 설치·사용 합의 후 결정한다.
 - 패키지 매니저는 pnpm으로 확정한다.
-- 최신 FE 작업 순서: 스캐폴딩 → planner에서 사용자와 FE 구조·방식 논의 및 확정 → 공통 UI → route-path별 화면 구현. 이전의 '구조 계획 제외' 방침은 변경되었다.
+- 최신 FE 작업 순서: 스캐폴딩 → FE 구조·방식 확정 → shared/ui 공통 컴포넌트 개발·리뷰 → features 업무 화면·routes 조립. 고객 feature UI부터 개발한 뒤 shared로 옮기는 계획은 사용자 정정으로 철회했다.
 - FE 스캐폴딩은 사용자가 직접 담당한다(재확인). 완료 후 planner에서 구조·방식을 함께 확정하고 승인된 FE 구현으로 진행한다. AI는 구성·패키지 설치·설정을 임의로 변경하지 않는다.
 - 개인 라이브러리 [flame](https://github.com/rlatlswo135/flame)의 npm 패키지 `flame-ui` 사용 예정. `ded7f43` 기준 README·패키지 선언·대표 컴포넌트 소스를 검토했다. React 19 기반 headless 라이브러리이며 실제 설치·StyleX 통합·브라우저 테스트는 미실행이다.
-- flame-ui 채택 시 유의: Select에 listbox 키보드 탐색 미구현이 명시되어 있어 보완 또는 기본 select 사용을 검토한다. Drawer는 모달이므로 목록과 동시에 조작할 고정 우측 패널에 그대로 사용하지 않는다. 필요한 동작만 재사용하고 시안의 스타일·테마는 FE 내부 ui/에서 적용한다.
+- flame-ui 채택 시 유의: Select에 listbox 키보드 탐색 미구현이 명시되어 있어 보완 또는 기본 select 사용을 검토한다. Drawer는 모달이므로 목록과 동시에 조작할 고정 우측 패널에 그대로 사용하지 않는다. 필요한 동작만 재사용하고 공통 컴포넌트의 시안 스타일·테마는 처음부터 shared/ui에 적용하고 업무 화면 스타일은 feature에 둔다.
 - 포매터(oxfmt 포함)와 StyleX 빌드·린트 연동 등 구성 선택은 사용자에게 맡긴다. FE 구조는 실제 구성을 읽고 사용자와 논의한다.
 - server/: 서버 실행·DB 연결·마이그레이션 등 최소 구성부터 NestJS + PostgreSQL 구현까지 사용자가 직접 담당한다. AI가 대신 구현하거나 계획을 확장하지 않는다.
 - 서버 최소 구성·API 준비는 FE 화면 구현의 선행 조건이 아니다. 가상 데이터로 FE를 먼저 구현·리뷰하고, 사용자 서버가 준비되면 실제 연결한다.
