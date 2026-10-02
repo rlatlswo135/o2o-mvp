@@ -9,7 +9,7 @@
 1. 이 파일을 담은 `.harness/`의 부모 디렉터리를 프로젝트 루트로 삼는다.
    Git 브랜치·변경 파일을 확인하고 사용자 작업을 보존한다.
 2. 루트와 작업 대상 디렉터리의 AGENTS.md/CLAUDE.md 등 적용되는 지침을 읽는다.
-   `.harness/WORKFLOW.md`와 `.harness/CURRENT.md`를 읽는다.
+   `.harness/WORKFLOW.md`와 `.harness/CURRENT.md`를 읽는다. FLOW.md가 있으면 함께 읽는다.
 3. CURRENT.md에 지정된 스토리와 참조 자료를 실제로 읽는다. 이미지가 지정되면 이미지도 연다.
    현재 패키지·설정·코드가 과거 계획과 다르면 조용히 되돌리지 말고 차이를 알린다.
 4. 작업 대상이 비어 있거나 파일이 없으면 필요한 정보만 사용자에게 확인하고 멈춘다.
@@ -29,9 +29,10 @@
 | --- | --- | --- |
 | DRAFT | planner가 미정 요구·구조·완료 조건 정리 | 필요한 사용자 결정·승인 요청 |
 | AWAITING_APPROVAL | planner가 미정 사항을 정리하거나 승인받을 내용을 제시 | 명시적 구현 승인 전 |
-| IMPLEMENTING / FIX | executor가 승인된 범위만 구현·검증 | 리뷰 인계 또는 범위·권한·환경 문제 |
-| REVIEW / QA | reviewer가 고정된 결과물 검토·검증 | 수정 인계·수동 테스트 요청 |
-| MANUAL_TEST | reviewer가 절차 안내·사용자 결과 확인 | 사용자 확인 전 |
+| IMPLEMENTING / FIX / QA | executor가 승인된 범위만 구현·테스트·검증 | 실행 완료 선택 또는 범위·권한·환경 문제 |
+| REVIEW | reviewer가 diff·관련 코드만 정적 검토, 테스트·브라우저 실행 안 함 | executor에게 코드 리뷰 회신 |
+| REVIEW_DECISION | executor가 실제 코드와 대조해 섹션별 브리핑 | 사용자 accept/feedback 전에는 수정 금지 |
+| MANUAL_TEST | executor가 절차 안내·사용자 결과 확인 | 사용자 확인 전 |
 | LEARNING | planner가 검증 결과를 근거로 학습 문서 작성 | 선택한 Quiz 응답 대기 또는 완료 게이트 |
 | BLOCKED | 근거를 읽고 필요한 사용자 결정을 안내 | 해결 확인 전 |
 | DONE | 완료 사실과 결과 위치 안내 | 다음 스토리 선택·승인 전 |
@@ -46,7 +47,11 @@
 - 단계 전이는 WORKFLOW.md에 따라 현재 담당자만 스토리에 기록한다.
   그다음 CURRENT.md를 새 담당·다음 행동·멈춤 조건에 맞게 갱신한다. 둘이 어긋나면 다음 작업을 실행하지 않는다.
 - 인계가 필요하면 기록 저장 후 send한다. 새 CLI/에이전트를 띄우거나 다른 pane에 실행 명령을 주입하지 않는다.
+- 완료된 계획은 FLOW.md의 계획 완료 선택, 완료된 구현/FIX는 실행 완료 선택 UI를 제시한다.
+  보강·논의·취소면 인계하지 않는다. UI가 없으면 승인으로 대체하지 말고 중단한다.
 - 마지막으로 inbox를 확인하고 결과·남은 제약·다음 행동을 짧게 보고한다.
+  인계 시 수신 pane·명령·문서 경로·메시지 ID를 표시한다. planner → executor는 `/executor`,
+  reviewer 수신 복구는 `/reviewer`, 학습 단계 planner 복귀는 `/harness-resume`이다.
 
 ## 새 세션에서 기대하는 동작
 

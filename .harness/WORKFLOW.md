@@ -5,10 +5,12 @@
 - 독립 CLI 세션 세 개. API 호출·모델 라우팅·상주 오케스트레이터 없음.
 - 프로젝트의 기존 지침과 사용자 승인이 우선. CLI의 권한 확인을 우회하지 않는다.
 - 공유 작업 디렉터리에서 소스 수정자는 executor 한 명뿐이다.
-- planner는 스토리/학습 문서, reviewer는 리뷰/QA 문서만 수정한다.
+- planner는 스토리/학습 문서, reviewer는 코드 리뷰 문서만 수정한다. 테스트·QA·수동 테스트 안내는 executor 담당이다.
+  각 역할은 인계에 필요한 스토리·CURRENT.md·index.md 기록도 갱신한다.
 - 한 번에 활성 스토리 하나. 에이전트를 더 늘리기 전 별도 worktree 설계를 한다.
 - 메시지는 알림이다. 판단 근거는 스토리, 실제 diff, 테스트 출력이다.
 - 역할별 모델은 사용자가 CLI에서 설정한다. 문서의 모델 선호는 강제 설정이 아니다.
+  `c2h run ROLE`로 시작하면 models.json의 값을 시작 옵션으로 전달하며 실행 중 임의 변경하지 않는다.
 
 ## 작업 시작·재개
 
@@ -22,7 +24,7 @@
 ## 기록
 
 `.harness/STORY.md`를 `.harness/stories/S001/story.md`로 복사해 시작한다.
-동일 디렉터리에 implementation.md, review-1.md, qa-1.md, manual-test.md,
+동일 디렉터리에 implementation.md, review-1.md, manual-test.md,
 deep-guide.md, eli5.md, quiz.md를 필요 시 작성한다.
 코드·테스트 결과를 추측하거나 실행하지 않은 검증을 통과로 기록하지 않는다.
 
@@ -34,40 +36,57 @@ deep-guide.md, eli5.md, quiz.md를 필요 시 작성한다.
 | AWAITING_APPROVAL | 사용자 → planner | 사용자 명시 승인 기록 |
 | IMPLEMENTING | executor | 구현과 검증 결과, 리뷰 기준 고정 |
 | REVIEW | reviewer | 코드리뷰 통과 또는 FIX 요청 |
-| QA | reviewer | 완료 조건별 검증 통과 또는 FIX 요청 |
-| FIX | executor | 수정 후 REVIEW부터 재검증 |
-| MANUAL_TEST | 사용자 → reviewer | 사용자 테스트 결과 확인 |
+| QA | executor | 완료 조건별 테스트·검증 (구현 단계에서 수행, 기존 QA 상태도 executor에게 인계) |
+| REVIEW_DECISION | executor → 사용자 | 리뷰 브리핑 후 수정안 accept/feedback 대기 |
+| FIX | executor | 사용자가 승인한 수정 후 REVIEW부터 재검증 |
+| MANUAL_TEST | 사용자 → executor | 사용자 테스트 결과 확인 |
 | LEARNING | planner | Deep Guide, ELI5, Quiz 작성 |
 | DONE | planner | 모든 완료 게이트 충족 |
 | BLOCKED | 사용자 | 요구사항·권한·반복 한도·환경 문제 해결 |
 
 상태 인계는 현재 담당자만 기록한다. 다음 담당자는 이전 담당자의 인계 후 작업한다.
-이 규칙은 CLI가 강제하는 상태 머신이 아니라 에이전트가 준수하는 작업 계약이다.
+`--flow`에서는 `/executor`가 선택 UI를 열고, 사용자의 명시적 스토리 선택으로 준비된 인계를 수락한다.
+executor가 선택을 승인 근거로 기록한다. 명령 호출·취소·무응답은 승인으로 처리하지 않는다.
+각 담당자는 상태를 전이한 뒤 index.md 체크리스트도 갱신한다. DONE만 체크하며 상태의 정본은 스토리 문서다.
+이 규칙은 CLI가 강제하는 전체 상태 머신이 아니라 에이전트가 준수하는 작업 계약이다.
+명령 기반 인계는 `.harness/FLOW.md`를 함께 읽는다(설치된 경우).
 
-## 실행 → 리뷰 → QA → Fix
+## 계획 → 실행·QA → 코드 리뷰 → Fix
 
-1. planner가 승인된 스토리를 executor에게 send로 전달한다.
+1. planner는 스토리 작성 후 인계 / 검토·보강 / 논의 선택을 제시한다. 사용자가 인계를 선택하면
+   준비된 스토리를 executor에게 send하고 해당 pane에서 `/executor`로 선택하도록 안내한다.
+   전달만으로 구현 승인하지 않는다. 실행자 UI에서 선택한 스토리 하나만 승인·착수한다.
 2. executor는 변경 파일·검증 명령/결과·기준 커밋과 대상 커밋을 implementation.md에 기록한다.
    커밋은 사용자/프로젝트 정책이 허용할 때만 만든다. 커밋이 불가하면 diff와 untracked 파일
    목록/내용의 스냅샷을 남기고 리뷰 종료까지 소스 수정을 멈춘다. staged diff도 포함한다.
    비밀 파일을 스냅샷에 넣지 않는다.
-3. reviewer는 기준을 확인하고 코드리뷰 후 QA를 수행한다. 검토 중 기준이 바뀌면 재인계를 요청한다.
-4. 실패 시 심각도·위치·재현법·기대 결과를 기록하고 executor에게 FIX를 요청한다.
-5. executor는 수정 근거와 재검증 결과를 남기고 reviewer에게 다시 전달한다.
-6. 코드리뷰/Fix와 QA/Fix 각각 최대 3회. 같은 실패가 2회 반복되면 즉시 BLOCKED.
+   테스트·브라우저 등 필요한 QA는 executor가 수행한다. 결과 저장 후 리뷰 인계 / 보강 / 논의 선택을 제시한다.
+   명시적인 리뷰 인계 선택 또는 `/harness-review` 후에만 REVIEW로 넘긴다.
+3. reviewer는 diff와 관련 코드에서 계획 누락·결함·잠재 위험을 검토한다. 전체 저장소 탐색·테스트·브라우저 실행은 하지 않는다.
+   실행자 검증 증거를 인용하고 부족한 증거는 요청한다. 검토 중 기준이 바뀌면 재인계를 요청한다.
+4. reviewer는 지적 여부와 무관하게 결과를 executor에게 회신한다. REVIEW_DECISION에서
+   executor가 실제 코드와 대조해 섹션별로 브리핑하고 사용자 판단을 기다린다. 지적만으로 FIX를 시작하지 않는다.
+5. 사용자가 수락한 수정안만 FIX로 진행한다. executor는 수정 근거·재검증 결과를 남기고,
+   사용자의 리뷰 인계 요청 후 새 기준을 reviewer에게 전달한다.
+6. 코드리뷰/Fix와 실행자 QA/Fix 각각 최대 3회. 같은 실패가 2회 반복되면 즉시 BLOCKED.
    사용자에게 실패 근거와 모델 변경/요구사항 결정 필요성을 전달한다. 스스로 모델을 바꾸지 않는다.
-7. 수동 테스트 필요 시 reviewer가 절차·기대 결과·증거 양식을 작성한다.
+7. 수동 테스트 필요 시 executor가 절차·기대 결과·증거 양식을 작성한다.
    사용자 확인 없이는 LEARNING/DONE으로 넘어가지 않는다. 불필요하면 이유를 기록한다.
-8. planner는 검증된 구현을 기준으로 학습 문서를 작성한다. Quiz 답안은 별도 구역에 둔다.
+8. executor는 코드 리뷰·테스트 증거·사용자 확인이 정리된 뒤 LEARNING/담당 planner와 CURRENT.md를 맞추고
+   결과 경로를 send한다. planner pane의 `/harness-resume`으로 수동 재개한다.
+   planner는 검증된 구현을 기준으로 학습 문서를 작성한다. Quiz 답안은 별도 구역에 둔다.
    사용자가 Quiz 응답을 원하면 대기한다. 기본 완료 조건은 Quiz 생성이며 응답은 선택이다.
-9. planner가 승인·리뷰·QA·필요한 수동 테스트·학습 문서를 확인하고 DONE 기록.
+9. planner가 승인·코드 리뷰·실행자 QA 증거·필요한 수동 테스트·학습 문서를 확인하고 DONE 기록.
 
 ## 메시지 처리
 
 - 시작/작업 종료/사용자 재개 요청 시 inbox 확인. 같은 ID는 한 번만 처리한다.
 - 메시지에 스토리 ID, 요청 단계, 결과 파일 경로, 리뷰 기준을 포함한다.
 - 결과 파일을 먼저 저장한 뒤 send. 수신자는 기록을 확인하고 인계 수락을 남긴 뒤 ack.
+  단, --flow의 review_request는 reply가 결과 저장 후 요청을 보관하므로 미리 ack하지 않는다.
 - 다른 활성 스토리 메시지는 처리하지 않고 대기. 불명확한 요청은 사용자에게 확인.
 - send는 inbox 저장과 tmux 알림까지만 수행한다. 바쁜 CLI나 shell에 키 입력을 주입하지 않는다.
-- 유휴 CLI는 알림만으로 새 추론을 시작하지 않는다. 사용자가 해당 pane에 `inbox 확인하고 진행`을 입력한다.
+- 기본 모드의 유휴 CLI는 알림만으로 새 추론을 시작하지 않는다. 사용자가 해당 pane에 `inbox 확인하고 진행`을 입력한다.
+- 명시적으로 설치한 --flow에서는 Pi reviewer 확장과 Claude의 백그라운드 대기 완료 알림으로 기존 세션을 재개한다.
+  새 에이전트나 모델 API를 호출하지 않는다. 자동 회신 수신 후에도 수정은 사용자 승인 전까지 금지한다.
 - 메시지 발신 역할은 협업용 표기이며 인증 수단이 아니다. 같은 OS 계정의 신뢰된 세션만 사용한다.
