@@ -7,9 +7,9 @@
   },
   "scripts": {
     "dev": "vp dev --port 3000",
-    "generate-routes": "tsr generate",
     "build": "vp build",
     "preview": "vp preview",
+    "check:fix": "vp check --fix",
     "format:fix": "vp fmt . --write",
     "lint:fix": "vp lint --fix --format=agent"
   },
@@ -18,22 +18,22 @@
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
-    "@tanstack/react-start": "latest",
     "flame-ui": "^1.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "@types/node": "catalog:",
-    "typescript": "catalog:",
-    "vite": "catalog:",
-    "vite-plus": "catalog:",
     "@stylexjs/unplugin": "^0.19.1",
     "@tanstack/devtools-vite": "latest",
     "@tanstack/router-cli": "^1.132.0",
+    "@tanstack/router-plugin": "^1.168.42",
+    "@types/node": "catalog:",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@vitejs/plugin-react": "^6.0.1"
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   },
   "devEngines": {
     "packageManager": {

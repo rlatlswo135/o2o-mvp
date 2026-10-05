@@ -45,7 +45,6 @@ export default defineConfig({
           // react
           "react/self-closing-comp": "error",
           "react/refs": "error",
-          "react/button-has-type": "error",
           "react/no-array-index-key": "error",
           "react/unsupported-syntax": "error",
           "react/static-components": "error",

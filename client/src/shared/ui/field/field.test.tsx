@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
+import { Input } from "../input/input.js";
 import { Field } from "./field.js";
-import { Input } from "./input.js";
 
 describe("Field + Input", () => {
   it("id를 생략해도 자동 생성 id로 label과 입력을 연결한다", () => {

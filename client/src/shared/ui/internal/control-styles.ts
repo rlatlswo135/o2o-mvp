@@ -1,40 +1,9 @@
-import type { ComponentPropsWithRef } from "react";
-
 import * as stylex from "@stylexjs/stylex";
 
-import { joinIds, useFieldControl } from "./field.js";
-import { colors, controls } from "./theme.stylex.js";
+import { colors, controls } from "../theme.stylex.js";
 
-export interface InputProps extends Omit<ComponentPropsWithRef<"input">, "className" | "style"> {
-  /** Field 밖에서 오류 상태를 직접 지정한다. Field 안에서는 Field의 error가 기본값이다. */
-  invalid?: boolean | undefined;
-}
-
-export function Input({
-  id,
-  invalid,
-  required,
-  disabled = false,
-  "aria-describedby": describedBy,
-  ...props
-}: InputProps) {
-  const field = useFieldControl();
-  const isInvalid = invalid ?? field?.invalid ?? false;
-
-  return (
-    <input
-      {...props}
-      id={field?.id ?? id}
-      required={required ?? field?.required}
-      disabled={disabled}
-      aria-invalid={isInvalid || undefined}
-      aria-describedby={joinIds(field?.describedBy, describedBy)}
-      {...stylex.props(styles.base, isInvalid && styles.invalid, disabled && styles.disabled)}
-    />
-  );
-}
-
-const styles = stylex.create({
+// Select·Textarea·금액 입력이 함께 쓰는 입력 상자 모양. Input과 같은 테두리·포커스·오류·disabled 표현을 따른다.
+export const controlStyles = stylex.create({
   base: {
     width: "100%",
     minHeight: controls.height,
@@ -75,5 +44,37 @@ const styles = stylex.create({
     backgroundColor: colors.disabledSurface,
     color: colors.disabledText,
     cursor: "not-allowed",
+  },
+});
+
+export const a11yStyles = stylex.create({
+  // 화면에서는 숨기고 보조기기와 키보드 포커스에는 남긴다.
+  visuallyHidden: {
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    margin: "-1px",
+    padding: 0,
+    overflow: "hidden",
+    clip: "rect(0 0 0 0)",
+    whiteSpace: "nowrap",
+    borderWidth: 0,
+  },
+});
+
+// fieldset 기본 테두리·여백을 지우고 Field label과 같은 글자 모양의 legend를 쓴다.
+export const groupStyles = stylex.create({
+  fieldset: {
+    minWidth: 0,
+    margin: 0,
+    padding: 0,
+    borderWidth: 0,
+  },
+  legend: {
+    padding: 0,
+    marginBottom: "8px",
+    color: colors.text,
+    fontSize: controls.labelFontSize,
+    fontWeight: 600,
   },
 });

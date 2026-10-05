@@ -1,3 +1,9 @@
+## 컴포넌트 타입
+
+- 컴포넌트 Props와 관련 입력·옵션·컨텍스트 타입은 `interface` 대신 `type` alias를 사용한다.
+- 네이티브 Props는 중간 별칭 없이 `Omit<ComponentPropsWithRef<...>, ...> & { ... }`로 직접 정의한다.
+- 선언 병합이 필요한 `interface`와 자동 생성 코드는 변경하지 않는다.
+
 <!--VITE PLUS START-->
 
 # Using Vite+, the Unified Toolchain for the Web

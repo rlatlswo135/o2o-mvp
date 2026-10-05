@@ -16,6 +16,14 @@ export const colors = stylex.defineVars({
   focusRingSoft: "rgba(47, 93, 155, 0.18)",
 
   neutralSurface: "#eef2f7",
+  neutralText: "#4f5a6a",
+  selectedSurface: "#edf3fb",
+
+  infoSurface: "#e8f0fa",
+  success: "#2b7449",
+  successSurface: "#e8f5ed",
+  warning: "#8a5a00",
+  warningSurface: "#fdf3e0",
 
   danger: "#b9382f",
   dangerSurface: "#fff4f2",
@@ -24,6 +32,8 @@ export const colors = stylex.defineVars({
 
   disabledSurface: "#eef1f5",
   disabledText: "#a3abb7",
+
+  overlay: "rgba(30, 42, 59, 0.45)",
 });
 
 export const controls = stylex.defineVars({

@@ -1,0 +1,10 @@
+{
+  "kind": "review_request",
+  "baseline": "e9b69a5ca716bccbd82ed7dc810a8197d9be0462d3d43a153851d96d57e3cb6e",
+  "fingerprint": "files-v1",
+  "id": "20261005T112412618000Z-b013d0649a10",
+  "sender": "executor",
+  "target": "reviewer",
+  "story": "UI002",
+  "message": "Review the frozen implementation; save draft before explicit reply."
+}

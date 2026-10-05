@@ -3,15 +3,14 @@ import type { ComponentPropsWithRef, MouseEvent } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { useCallback } from "react";
 
-import { colors, controls } from "./theme.stylex.js";
+import { colors, controls } from "../theme.stylex.js";
 
 type ButtonVariant = "primary" | "secondary" | "danger";
 
-export interface ButtonProps extends Omit<ComponentPropsWithRef<"button">, "className" | "style"> {
+export type ButtonProps = Omit<ComponentPropsWithRef<"button">, "className" | "style"> & {
   variant?: ButtonVariant;
-  /** 처리 중. 포커스는 유지하되 클릭·제출을 막고 aria-busy로 알린다. */
   loading?: boolean;
-}
+};
 
 export function Button({
   variant = "primary",
@@ -36,7 +35,7 @@ export function Button({
   return (
     <button
       {...props}
-      type={type === "submit" ? "submit" : type === "reset" ? "reset" : "button"}
+      type={type}
       disabled={disabled}
       aria-disabled={loading || undefined}
       aria-busy={loading || undefined}

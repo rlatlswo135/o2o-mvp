@@ -3,14 +3,14 @@ import type { ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { createContext, use, useId, useMemo } from "react";
 
-import { colors, controls } from "./theme.stylex.js";
+import { colors, controls } from "../theme.stylex.js";
 
-interface FieldControl {
+type FieldControl = {
   id: string;
   describedBy: string | undefined;
   invalid: boolean;
   required: boolean;
-}
+};
 
 const FieldContext = createContext<FieldControl | null>(null);
 
@@ -19,7 +19,7 @@ export function useFieldControl() {
   return use(FieldContext);
 }
 
-export interface FieldProps {
+export type FieldProps = {
   label: string;
   /** 입력 아래 안내 문구. */
   description?: string | undefined;
@@ -29,7 +29,7 @@ export interface FieldProps {
   /** 입력 요소의 id. 생략하면 자동 생성한다. Field 안 입력의 id는 이 값으로 정해진다. */
   id?: string | undefined;
   children: ReactNode;
-}
+};
 
 export function Field({ label, description, error, required = false, id, children }: FieldProps) {
   const generatedId = useId();

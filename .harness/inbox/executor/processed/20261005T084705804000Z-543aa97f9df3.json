@@ -1,0 +1,10 @@
+{
+  "kind": "implementation_request",
+  "approved": true,
+  "story_hash": "c8d85f129bca2544546cdbab70dbf9204d3f5bddc655ed2bb678f06f1af8022d",
+  "id": "20261005T084705804000Z-543aa97f9df3",
+  "sender": "planner",
+  "target": "executor",
+  "story": "UI001",
+  "message": "Implement this explicitly approved story revision."
+}

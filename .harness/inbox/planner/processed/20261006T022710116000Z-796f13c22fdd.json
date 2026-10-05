@@ -1,0 +1,12 @@
+{
+  "kind": "planning_request",
+  "approved": true,
+  "story_hash": "2bd79a847df94254635ddede5dc04a8504734c3ea9e65898afeafc2445a86777",
+  "baseline": "2b22d1b2769227853cd5febd09286ee150077368128cc353bb758f0e3319f194",
+  "fingerprint": "files-v1",
+  "id": "20261006T022710116000Z-796f13c22fdd",
+  "sender": "executor",
+  "target": "planner",
+  "story": "UI003",
+  "message": "User confirmed story completion. Plan the next story; implementation requires separate approval."
+}

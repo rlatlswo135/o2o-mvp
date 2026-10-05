@@ -1,10 +1,16 @@
 import * as stylex from "@stylexjs/stylex";
 import { createFileRoute } from "@tanstack/react-router";
 
+import { Button } from "@/shared/ui/button/button.tsx";
+import { Field } from "@/shared/ui/field/field.tsx";
+import { Input } from "@/shared/ui/input/input.tsx";
+
 import { colors } from "../shared/ui/theme.stylex.ts";
-import { Button } from "@/shared/ui/button.tsx";
-import { Field } from "@/shared/ui/field.tsx";
-import { Input } from "@/shared/ui/input.tsx";
+import { AmountReview } from "./-amount-review.tsx";
+import { DialogReview } from "./-dialog-review.tsx";
+import { FeedbackNoticeReview, FeedbackStatesReview } from "./-feedback-review.tsx";
+import { SelectionReview } from "./-selection-review.tsx";
+import { TableReview } from "./-table-review.tsx";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -45,6 +51,48 @@ function Home() {
           </Field>
         </div>
       </section>
+
+      <section aria-labelledby="choices-title" {...stylex.props(styles.card)}>
+        <h2 id="choices-title" {...stylex.props(styles.cardTitle)}>
+          Select · Checkbox · Radio · Switch · SegmentedControl
+        </h2>
+        <SelectionReview />
+      </section>
+
+      <section aria-labelledby="amounts-title" {...stylex.props(styles.card)}>
+        <h2 id="amounts-title" {...stylex.props(styles.cardTitle)}>
+          Textarea · AmountInput · AmountDisplay
+        </h2>
+        <AmountReview />
+      </section>
+
+      <section aria-labelledby="table-title" {...stylex.props(styles.card)}>
+        <h2 id="table-title" {...stylex.props(styles.cardTitle)}>
+          Table · Badge
+        </h2>
+        <TableReview />
+      </section>
+
+      <section aria-labelledby="dialog-title" {...stylex.props(styles.card)}>
+        <h2 id="dialog-title" {...stylex.props(styles.cardTitle)}>
+          Dialog
+        </h2>
+        <DialogReview />
+      </section>
+
+      <section aria-labelledby="states-title" {...stylex.props(styles.card)}>
+        <h2 id="states-title" {...stylex.props(styles.cardTitle)}>
+          EmptyState · Skeleton · ErrorState
+        </h2>
+        <FeedbackStatesReview />
+      </section>
+
+      <section aria-labelledby="notices-title" {...stylex.props(styles.card)}>
+        <h2 id="notices-title" {...stylex.props(styles.cardTitle)}>
+          Notice · Toast
+        </h2>
+        <FeedbackNoticeReview />
+      </section>
     </main>
   );
 }
@@ -55,7 +103,12 @@ const styles = stylex.create({
     flexDirection: "column",
     gap: "24px",
     minHeight: "100vh",
-    padding: "40px 48px",
+    padding: {
+      default: "40px 48px",
+      "@media (max-width: 640px)": "24px 16px",
+    },
+    // 화면 하단 토스트가 마지막 내용을 가리지 않도록 스크롤 여유를 둔다.
+    paddingBottom: "160px",
     backgroundColor: colors.canvas,
     color: colors.text,
     fontFamily: "system-ui, -apple-system, 'Apple SD Gothic Neo', sans-serif",
@@ -69,7 +122,10 @@ const styles = stylex.create({
     flexDirection: "column",
     gap: "16px",
     maxWidth: "960px",
-    padding: "24px",
+    padding: {
+      default: "24px",
+      "@media (max-width: 640px)": "16px",
+    },
     borderWidth: "1px",
     borderStyle: "solid",
     borderColor: colors.border,
@@ -87,7 +143,7 @@ const styles = stylex.create({
   },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fill, minmax(min(260px, 100%), 1fr))",
     gap: "20px",
   },
 });

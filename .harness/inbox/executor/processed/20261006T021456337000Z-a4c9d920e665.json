@@ -1,0 +1,10 @@
+{
+  "kind": "review_result",
+  "reply_to": "20261006T020259072000Z-1386d9c40435",
+  "baseline": "9660d6a952828de10c7388a0befbb535eb4abf2fe9f245875d988d41027cd965",
+  "id": "20261006T021456337000Z-a4c9d920e665",
+  "sender": "reviewer",
+  "target": "executor",
+  "story": "UI003",
+  "message": "{\"review\":\".harness/stories/UI003/review-1.md\",\"hashes\":{\".harness/stories/UI003/review-1.md\":\"b644300db02a38ee61289927dcf28a16385a3765a1535abbc6a9182489de2e7d\"}}"
+}
