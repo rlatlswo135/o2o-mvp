@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { Button } from "@/shared/ui/button/button.tsx";
 import { Field } from "@/shared/ui/field/field.tsx";
@@ -19,6 +19,12 @@ function Home() {
   return (
     <main {...stylex.props(styles.page)}>
       <h1 {...stylex.props(styles.title)}>공통 UI 검토</h1>
+      <p {...stylex.props(styles.screenLinks)}>
+        업무 화면:{" "}
+        <Link to="/customers" {...stylex.props(styles.screenLink)}>
+          고객 관리(가상 동작)
+        </Link>
+      </p>
 
       <section aria-labelledby="buttons-title" {...stylex.props(styles.card)}>
         <h2 id="buttons-title" {...stylex.props(styles.cardTitle)}>
@@ -116,6 +122,15 @@ const styles = stylex.create({
   title: {
     margin: 0,
     fontSize: "24px",
+  },
+  screenLinks: {
+    margin: 0,
+    color: colors.textMuted,
+    fontSize: "14px",
+  },
+  screenLink: {
+    color: colors.primary,
+    fontWeight: 600,
   },
   card: {
     display: "flex",

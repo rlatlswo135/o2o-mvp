@@ -1,3 +1,8 @@
+# c2h checkpoint
+
+Scope revision, explicit approval and workflow evidence. Do not edit this generated record.
+
+```json
 {
   "story": "S001R2",
   "story_hash": "dcde0526aa0b26b53b907351337af1816b4cb5ddcc3a0c3cb457df7a619d4c8b",
@@ -14,3 +19,4 @@
   "verified_baseline": "2ce85f24cb4dfb2756531accab2f8a600809b5ccb79fdb3d2bb7a00c7a2db416",
   "request_id": "20261006T070037704000Z-80bde91f87c3"
 }
+```

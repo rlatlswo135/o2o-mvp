@@ -1,0 +1,8 @@
+{
+  "story": "S001R2",
+  "before": "2ce85f24cb4dfb2756531accab2f8a600809b5ccb79fdb3d2bb7a00c7a2db416",
+  "after_resources": "c6e004c531ff38e923cafdc8537724f3b6e2b4f2797c8c9ab129c42ecaad8937",
+  "reverification_required": true,
+  "updated": "2026-10-06T08:17:22.061Z",
+  "note": "Harness maintenance only. Existing approval/checkpoint preserved. Reverify changed source before completion; resume recomputes drift, including later document migrations. This receipt is not approval or QA evidence."
+}

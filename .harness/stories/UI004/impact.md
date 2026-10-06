@@ -35,6 +35,6 @@ flame-ui 1.0.1 README·Toast 타입·dist 구현 직접 확인. 항상 예약되
 
 ## Recommended action
 
-[UI004 계획](../.harness/stories/UI004/story.md)의 정확한 revision을 사용자에게 제시해 handoff/refine/discuss 선택. 승인 후 executor가 최소 자체 분기 자동 검증·dev/preview 조작 QA·사용자 시안 확인을 수행한다. 자동 DONE 없음.
+[UI004 계획](story.md)의 정확한 revision을 사용자에게 제시해 handoff/refine/discuss 선택. 승인 후 executor가 최소 자체 분기 자동 검증·dev/preview 조작 QA·사용자 시안 확인을 수행한다. 자동 DONE 없음.
 
 근거: 현재 소스 import 검색, Button/TableReview/Badge/테마/검토 배치, 설치된 flame Toast 구현·타입, UI003 완료 기록, 시안 이미지. 제품 실행 검증 NOT_RUN. 승인된 UI001~UI003 story.md·공통 범위·구조 문서는 수정하지 않았다.

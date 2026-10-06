@@ -694,7 +694,9 @@ function resumed(root, role) {
     if (state.phase === 'review_ready' && !response) action = 'review_choices';
   }
   const message = action === 'plan_next' ? pending.find(data => data.id === (state.completion?.message_id ?? state.planning_from)) : action === 'brief' ? response : pending.find(data => data.kind === 'implementation_request' && data.story === state.story && data.story_hash === state.story_hash);
-  return { story: state.story, phase: state.phase, action, checkpoint: state, ...(request ? { request } : {}), ...(message ? { message } : {}) };
+  return { story: state.story, phase: state.phase, action, checkpoint: state, ...(request ? { request } : {}), ...(message ? { message } : {}),
+    ...(['blocked', 'implementation_done'].includes(state.phase) && state.verified_baseline && sourceFingerprint(root) !== state.verified_baseline
+      ? { reverification_required: true } : {}) };
 }
 
 export function resume(root, role) {
@@ -711,6 +713,30 @@ export function resume(root, role) {
       if (attempt) return { story: null, phase: 'blocked', action: 'blocked', checkpoint: null, error: error.message };
     }
   }
+}
+
+// Resource maintenance is not blocked recovery or implementation approval.
+export function maintenanceUpgrade(root, apply) {
+  return transaction(root, root => {
+    const state = loadState(root);
+    check(state?.phase === 'blocked' && state.approval?.kind === 'fix' && state.verified_baseline && state.request_id,
+      'Maintenance requires a blocked, verified review-based implementation.');
+    for (const role of ROLES) {
+      resumed(root, role); // Validate envelopes, frozen scope and report integrity under the lock.
+      check(messages(root, role).length === 0, 'A pending message blocks maintenance; accept it first.');
+    }
+    check(openReviews(root).length === 0, 'An open review blocks maintenance.');
+    const before = sourceFingerprint(root);
+    check(before === state.verified_baseline, 'Unverified source changes block maintenance.');
+    const receipt = safe(root, storyDirectory(root, state.story), 'maintenance.json');
+    const result = apply();
+    const after = sourceFingerprint(root);
+    const maintenance = { story: state.story, before, after_resources: after,
+      reverification_required: before !== after, updated: new Date().toISOString(),
+      note: 'Harness maintenance only. Existing approval/checkpoint preserved. Reverify changed source before completion; resume recomputes drift, including later document migrations. This receipt is not approval or QA evidence.' };
+    atomic(root, receipt, encode(maintenance));
+    return { ...result, maintenance };
+  });
 }
 
 export function status(root) {

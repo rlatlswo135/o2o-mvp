@@ -8,7 +8,7 @@
 - 모델·thinking·effort는 사용자 관리. 하네스가 옵션을 강제하지 않으며 기존 models.json은 보존하되 무시한다.
 - 한 번에 활성 스토리 하나. setup은 역할 준비만 하며 승인된 인계나 명시적 명령 없이 제품 작업을 시작하지 않는다.
 - planner는 계획·선택된 학습, reviewer는 리뷰 문서, executor는 구현·검증·수동 테스트 안내를 맡는다.
-  각 역할은 인계 전에 증거·index.md를 갱신한다. CURRENT.md의 표준 진행 요약은 런타임이 갱신한다. 승인된 story.md는 수정하지 않는다.
+  각 역할은 인계 전에 증거를 저장한다. CURRENT.md의 표준 진행 요약은 런타임이 갱신한다. 승인된 story.md는 수정하지 않는다.
 
 ## 상태와 기록
 
@@ -40,6 +40,23 @@ CURRENT.md는 현재 작업 포인터다. planning의 미승인 story.md만 자�
 기존 DRAFT/AWAITING_APPROVAL, IMPLEMENTING/QA, REVIEW, REVIEW_DECISION, FIX 등의 Markdown은 보존하며
 실제 의미를 대조한다. MANUAL_TEST·LEARNING은 스토리 게이트로 유지하고 새 phase로 추측하지 않는다.
 
+## 기록 보존과 읽기 범위
+
+- 상태 정본은 active.json/checkpoint.md. CURRENT.md는 런타임 포인터, index.md는 스토리당 한 줄의 이름·링크·완료 여부·의존성 목록이다. 활성 스토리의 세부 phase·승인을 index에 복제하지 않는다.
+- 완료 story.md·checkpoint·리뷰·QA 원본은 보존한다. 기본 읽기에서 제외하며 관련 결함·계약 변경·승인 근거 조사 때만 필요한 기록을 연다. 요약을 이유로 원본을 덮어쓰거나 옮기지 않는다.
+- executor는 완료 인계 전에 implementation.md 상단에 **다음 작업용 요약**을 약 10~20줄로 갱신한다: 제공 결과·사용 경로·유지할 계약·미해결/미검증 제약·완료 근거 링크. 테스트 로그·인계 ID·수정 과정을 반복하지 않는다. 요약은 승인이나 QA 증거를 대체하지 않는다.
+- 공통 UI 같은 작업 묶음은 기존 구조/계약 문서에 현재 사용 가능한 결과만 통합한다. 각 완료 스토리에 같은 요약을 중복 생성하지 않는다. 미해결 제약은 링크만 남겨 숨기지 말고 요약에도 명시한다.
+- 하네스 작업 산출물은 `.harness/` 아래에 둔다. 짧은 영향 분석은 `stories/STORY/planning.md`, 긴 분석은 같은 폴더의 `impact.md`. 외부 스킬의 분석 방법만 활용하고 `specs/*`, 공용 `*_LATEST.md` 출력 경로·별도 lifecycle은 가져오지 않는다. 사용자가 별도 프로젝트 문서를 요청한 경우는 예외다.
+- 새 세션은 지침·현재 역할·resume·현재 승인 범위·관련 계약부터 읽는다. 전체 stories 재귀 읽기·과거 세션 대화 재로딩은 하지 않는다. FLOW는 현재 action의 절차를, index는 다음 후보를 고를 때만 읽는다.
+
+## 스토리 경계 세션 전환
+
+- 저장된 완료 인계 다음에는 새 세션을 사용한다. 같은 스토리의 리뷰·수정 중에는 유지할 수 있다. `/compact`는 요약 유지이므로 새 세션을 대체하지 않는다.
+- Pi: 기존 작업 대화가 있으면 확장이 인계를 보존하고 `/harness-new`를 안내한다. 역할 pane에서 이 명령이 새 세션 생성·런타임 재검증·계획/리뷰 재개를 묶는다. 역할 환경이 없으면 `/harness-new planner` 또는 `/harness-new reviewer`. 취소 시 기존 세션·요청 유지.
+- Pi 세션 교체 API는 사용자 명령에서만 안전하다. listener에서 강제 교체하거나 tmux 키를 주입하지 않는다. 빈 `/new` 세션은 유효한 요청을 자동 수신할 수 있다.
+- Claude: 완료 기록·인계 저장 후 사용자에게 `/clear` → `/executor`를 안내한다. 다른 스토리 인계를 기존 대화에서 받으면 ack·구현 전에 전환한다. 새 세션에서 정확한 승인 인계만 재개하며 승인을 다시 요구하지 않는다. 이전 waiter 종료 여부를 확인하고 하나만 재무장한다.
+- 실행 중·미저장 입력·queued 메시지를 버리지 않는다. 전환 자체는 새 구현·승인·DONE이 아니다. blocked는 새 스토리 경계가 아니며 원인을 먼저 해결한다.
+
 ## 승인과 검증
 
 1. planner 완료의 `c2h_plan_next(story)` handoff 선택이 정확한 revision의 구현 승인이다.
@@ -67,6 +84,12 @@ CURRENT.md는 현재 작업 포인터다. planning의 미승인 story.md만 자�
 
 커밋·푸시·범위 확대·계획 밖 의존성·파괴적 작업은 별도 승인이다. 사용자 담당 영역을 대신하지 않는다.
 
+## 유지보수 갱신
+
+역할 작업을 멈춘 뒤 설치기를 사용한다. 검증된 수정본이 사용자 BE 등 외부 의존성으로 blocked이고 모든 메시지·리뷰가 처리됐을 때만 `--install-only --maintenance`로 명시적 갱신할 수 있다.
+설치기는 잠금·승인·보고서 무결성·빈 inbox·마지막 검증 기준 일치를 확인한다. 활성 승인·checkpoint·verified_baseline은 바꾸지 않고 스토리의 maintenance.json에 갱신을 기록한다.
+갱신은 blocked 복구나 범위 확대 승인이 아니다. 재검증 여부는 receipt가 아니라 현재 소스와 verified_baseline 비교로 판단한다. 제외 대상인 .harness 문서만 바뀌면 기존 소스 검증 기준은 유지된다. `resume`의 `reverification_required: true`이면 새 기준으로 검증·사용자 확인하기 전 완료할 수 없다. 과거 리뷰를 새 소스의 검증으로 재사용하지 않는다.
+
 ## 메시지와 복구
 
 - typed implementation_request에는 승인·스토리 revision, review_result에는 요청 상관관계가 필요하다.
@@ -75,7 +98,7 @@ CURRENT.md는 현재 작업 포인터다. planning의 미승인 story.md만 자�
   review_request는 미리 ack하지 않고 명시적 send 선택의 reply가 보관한다.
 - Claude 시작 시 resume 확인 후 네이티브 background Bash로 `node .harness/bin/c2h.mjs listen executor --timeout 0` 하나만 연다.
   처리·ack 후 재무장, 재시작 후 새 waiter를 만든다. 이전 job 생존을 가정하지 않는다.
-- Pi reviewer와 planner는 유휴이며 입력이 없을 때 각각 검증된 리뷰 요청·완료 인계를 자동 수신한다.
+- Pi reviewer와 planner는 유휴이며 입력이 없을 때 각각 검증된 리뷰 요청·완료 인계를 감지한다. 새 세션 경계는 위 규칙을 따른다.
   `/reviewer`는 요청된 리뷰, `/planner`는 완료 인계를 재개한다. 일반 메시지나 setup만으로 다음 계획을 시작하지 않는다.
 - 누락된 envelope·소스 drift·문서 불일치는 blocked. 수동 status/resume/inbox로 확인하고 임의 복원하지 않는다.
 - 같은 OS 계정의 신뢰된 세션용이며 역할 이름은 인증·보안 경계가 아니다. 메시지에 비밀을 넣지 않는다.

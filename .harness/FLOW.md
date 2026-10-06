@@ -16,7 +16,9 @@ Git·package.json·pnpm-lock.yaml은 하네스 필수 조건이 아니다. 없�
 | Claude executor | `/executor` | 상태부터 복원. 승인된 인계는 중복 선택 없이 구현 |
 | Claude executor | `/harness-review [ID]` | 완료된 구현의 리뷰 인계 |
 | Pi reviewer | `/reviewer` | 요청된 리뷰 시작·재개. 수정 후 재리뷰는 executor에서 명시적으로 선택 |
-| Pi planner | `/planner` | 완료 인계 재개. 다음 스토리 계획만 시작 |
+| Pi planner | `/planner` | 같은 작업 세션의 완료 인계 재개. 다음 스토리 계획만 시작 |
+| Pi planner/reviewer | `/harness-new [역할]` | 기록을 보존하고 새 세션에서 계획/리뷰 재개 |
+| Claude executor | `/clear` → `/executor` | 저장·대기 후 새 컨텍스트에서 승인된 작업 재개 |
 | Claude executor | `/accept` | 수정안 다중 선택 후 선택한 항목만 수정 |
 | Claude executor | `/feedback` | 항목 선택·논의. 수정 승인 아님 |
 
@@ -59,7 +61,7 @@ Claude는 **시작 시 resume 확인 후**, 살아 있는 작업이 없으면
 `node .harness/bin/c2h.mjs listen executor --timeout 0`을 **네이티브 Bash `run_in_background: true`로 하나만** 연다.
 셸 `&`, tmux send-keys, 추가 에이전트·모델 API, 반복 모델 폴링은 쓰지 않는다.
 완료 알림은 TaskOutput/Read로 읽고 resume으로 재검증한다. `implementation_request`는 승인·revision을 확인해
-수락 기록 후 해당 메시지만 ack한다. `review_result`는 브리핑 저장 후 ack한다.
+수락 기록 후 해당 메시지만 ack한다. 이전 스토리 대화가 남아 있으면 ack·구현 전에 사용자에게 `/clear` → `/executor`를 안내하고 기다린다. `review_result`는 같은 스토리에서 브리핑 저장 후 ack한다.
 `node .harness/bin/c2h.mjs ack executor MESSAGE_ID` 후 기존 waiter 종료를 확인하고 하나를 다시 연다.
 세션 재시작 시 이전 background job 생존을 가정하지 말고 resume 후 새 waiter를 만든다.
 권한 거부·잘못된 메시지는 숨기거나 무한 재시도하지 않는다.
@@ -157,14 +159,14 @@ Claude **AskUserQuestion**, `multiSelect: false`로 아래 3개를 제시하고 
 ## 완료 → 다음 계획
 
 완료 명령은 현재 스토리의 done checkpoint·확인한 소스 기준·planning_request를 같은 쓰기 잠금 안에서 저장한다. 재시도는 같은 인계를 재사용한다.
-executor는 완료·인계 저장 결과를 알리고 대기한다. `/plan`을 직접 입력하라고 요구하거나 다음 구현을 시작하지 않는다.
+executor는 완료 전 implementation.md 상단에 '다음 작업용 요약'(결과·경로·계약·남은 제약·완료 근거 링크)을 저장한다. 완료·인계 저장 결과와 `/clear` → `/executor`를 안내하고 대기한다. 다음 구현을 시작하지 않는다.
 
-planner Pi 확장은 유휴·대기 입력 없음·작성 중 입력 없음일 때 유효한 완료 요청을 자동 수신한다. 늦게 켜거나 재시작해도 pending 요청을 확인한다.
-planner는 resume의 `plan_next`와 완료 checkpoint·implementation.md를 검증하고 index.md의 완료 요약을 맞춘다. 승인된 story.md는 동결 상태를 유지한다.
+planner Pi 확장은 유효한 완료 요청을 감지한다. 이전 작업 대화가 있으면 요청을 ack하지 않고 `/harness-new`를 안내한다. 사용자 명령이 새 세션 생성·재검증·재개를 수행하며 `/plan` 재입력은 필요 없다. 빈 새 세션은 자동 수신한다.
+planner는 resume의 `plan_next`와 직전 완료 checkpoint·implementation.md의 '다음 작업용 요약'을 검증하고 index.md의 한 줄 완료 표시를 맞춘다. 불명확한 근거만 추가로 읽는다. 승인된 story.md·리뷰·QA 원본은 동결·보존한다.
 `.pi/prompts/plan.md`를 읽어 기존 요구·우선순위·의존성에 따라 다음 스토리 계획을 작성한다. 다음 대상이 없거나 불명확하면 사용자에게 묻고 임의 기능을 만들지 않는다.
 다음 계획의 planning checkpoint와 인계 수락 기록을 저장한 뒤 해당 planning_request만 ack한다. 착수 전에 ack하지 않는다.
 계획이 준비되면 기존 c2h_plan_next의 handoff / refine / discuss 선택을 연다. 다음 구현은 별도 사용자 승인 필요.
-자동 수신이 실패하면 같은 인계의 `/planner`로 재개한다. 새 요청을 만들거나 사용자 pane에 키를 주입하지 않는다.
+같은 작업의 자동 수신이 실패하면 같은 인계의 `/planner`로 재개한다. 이전 작업 컨텍스트가 남아 있으면 `/harness-new`를 사용한다. 새 요청을 만들거나 사용자 pane에 키를 주입하지 않는다.
 
 ## 복구·보장 경계
 
@@ -172,7 +174,7 @@ planner는 resume의 `plan_next`와 완료 checkpoint·implementation.md를 검�
 - 요청/회신 envelope 누락·상관관계 불일치·소스 drift·문서 충돌은 fail closed. 파일·승인을 추측해 재생성하지 않는다.
 - 열린 리뷰를 취소할 필요가 있으면 사용자 확인 후 `node .harness/bin/c2h.mjs cancel-review REQUEST_ID --approved --note '취소 이유'`를 실행한다.
   요청·취소 기록은 보관하며 늦은 reply는 거절한다. 소스 drift는 재검증 후 새 리뷰를 받아야 한다.
-- reviewer는 `/reviewer`, executor는 `/executor`, planner 완료 인계는 `/planner`로 재개한다. 새 요청 남발·기존 사용자 세션 재시작·relayout 금지.
+- reviewer는 `/reviewer`, executor는 `/executor`, planner 완료 인계는 `/planner`로 재개한다. 새 요청 남발·동의 없는 사용자 세션 재시작·relayout 금지. `/harness-new`는 명시적 사용자 전환이다.
 - listener 권한/알림이 실패하면 같은 세션에서 수동 resume/inbox, 기존 요청의 wait로 복구한다.
   확장 선택 UI가 없으면 승인 선택을 위조하지 말고 설치·신뢰·reload를 먼저 해결한다.
 - CLI 출력은 JSON, 진단은 stderr다. 저장 성공은 상대 모델 실행 성공이 아니다.

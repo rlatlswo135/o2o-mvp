@@ -17,7 +17,7 @@
 - 로컬 상태 + Notice 표현 재사용·모든 Toast 수동 닫기의 최소 대안을 제안했다. 사용자 “오케이 마지막 스토리구나, UI004 플랜 들어가자”에 따라 이 대안을 포함한 계획안을 작성했다. 이 문장은 구현 승인이나 세부 구현 완료 확인이 아니다. 정확한 revision의 구현은 c2h_plan_next handoff 선택 때만 승인된다.
 - 기본 Skeleton은 정적, Toast 자동 소멸/애니메이션·전역 store/provider/큐 없음. 검토 route에서 조회 네 상태·재시도·별도 Notice/Toast 결과·키보드 닫기를 확인한다. 실제 fetch·업무/API·설치·설정·server/는 제외한다.
 - 현재 컴포넌트별 폴더 규칙을 적용했다. Table/Badge·Button·의미 토큰·검토 배치를 재사용하며 기존 TableReview의 선택 그룹 중복 마운트는 피한다. 기존 공통 API와 토큰 값 변경 없음.
-- 영향/검증 공백은 [IMPACT_LATEST.md](../../../specs/IMPACT_LATEST.md)에 갱신했다. 위험 중간: 동적 live region·중복 전달·제거 시 포커스·가상 재시도 늦은 완료. 최소 자동 분기 검사와 executor dev/preview 실제 조작 확인을 분리한다.
+- 영향/검증 공백은 [당시 영향 분석](impact.md)에 갱신했다. 위험 중간: 동적 live region·중복 전달·제거 시 포커스·가상 재시도 늦은 완료. 최소 자동 분기 검사와 executor dev/preview 실제 조작 확인을 분리한다.
 - 시안 README·07/08 이미지, 현재 소스·설치본 타입/구현을 직접 읽었다. 제품 소스·생성물 수정, 설치·에이전트 실행·QA·커밋·푸시 없음. 기존 미커밋 UI003 구현 변경은 보존한다.
 
 ## planning 저장·인계 처리
