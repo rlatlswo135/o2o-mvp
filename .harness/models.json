@@ -1,5 +1,0 @@
-{
-  "planner": { "model": null, "thinking": null },
-  "executor": { "model": null, "effort": null },
-  "reviewer": { "model": null, "thinking": null }
-}

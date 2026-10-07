@@ -13,6 +13,12 @@ export default defineConfig({
         "unknown",
       ],
     },
+    overrides: [
+      {
+        files: ["server/**"],
+        options: { singleQuote: true, trailingComma: "all" },
+      },
+    ],
   },
   lint: {
     options: { typeAware: true, typeCheck: true },
@@ -38,6 +44,14 @@ export default defineConfig({
       "vite-plus/prefer-vite-plus-imports": "error",
     },
     overrides: [
+      {
+        files: ["server/**"],
+        env: { node: true },
+        rules: {
+          "typescript/no-explicit-any": "off",
+          "typescript/no-floating-promises": "error",
+        },
+      },
       {
         files: ["client/**"],
         plugins: ["react", "react-perf"],
