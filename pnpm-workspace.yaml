@@ -9,9 +9,7 @@ catalog:
 allowBuilds:
   esbuild: true
   lightningcss: true
-onlyBuiltDependencies:
-  - esbuild
-  - lightningcss
+  pnpm: true
 overrides:
   vite@*: "catalog:"
 peerDependencyRules:
