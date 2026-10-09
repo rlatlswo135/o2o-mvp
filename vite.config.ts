@@ -38,7 +38,6 @@ export default defineConfig({
       "import/default": "warn",
       "import/export": "warn",
       "import/max-dependencies": ["warn", { max: 10 }],
-      "import/no-default-export": "warn",
       "import/no-duplicates": "warn",
       // vite-plus
       "vite-plus/prefer-vite-plus-imports": "error",
@@ -50,12 +49,6 @@ export default defineConfig({
         rules: {
           "typescript/no-explicit-any": "off",
           "typescript/no-floating-promises": "error",
-        },
-      },
-      {
-        files: ["server/db/**"],
-        rules: {
-          "import/no-default-export": "off",
         },
       },
       {

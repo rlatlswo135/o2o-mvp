@@ -1,6 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Body, Injectable } from '@nestjs/common';
 
-import { CustomersRepository } from './customers.repository.js';
+import type { CreateCustomerDto } from './customers.schema.ts';
+
+import { CustomersRepository } from './customers.repository.ts';
+import { createCustomerSchema } from './customers.schema.ts';
 
 @Injectable()
 export class CustomersService {
@@ -12,5 +15,9 @@ export class CustomersService {
 
   getCustomerById(id: string): string {
     return this.customers.findById(id);
+  }
+
+  createCustomer(@Body({ schema: createCustomerSchema }) createCustomerDto: CreateCustomerDto) {
+    return this.customers.insert(createCustomerDto);
   }
 }
