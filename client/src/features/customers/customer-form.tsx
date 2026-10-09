@@ -158,9 +158,7 @@ export function CustomerForm({
         </div>
       </form>
 
-      <p {...stylex.props(styles.footnote)}>
-        가상 저장이에요. 실제 서버에 저장되지 않으며 새로고침하면 처음 예시로 돌아가요.
-      </p>
+      <p {...stylex.props(styles.footnote)}>저장한 고객 정보는 서버에 보관돼요.</p>
     </section>
   );
 }

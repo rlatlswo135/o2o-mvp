@@ -1,5 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isHTTPError } from "ky";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import type { NoticeContent } from "@/shared/ui/notice/notice.tsx";
 
@@ -7,13 +9,13 @@ import { Button } from "@/shared/ui/button/button.tsx";
 import { LiveNotice } from "@/shared/ui/notice/notice.tsx";
 
 import type { CustomerFormProps } from "./customer-form.tsx";
+import type { CustomerListQuery } from "./customer-list.tsx";
 
 import { colors } from "../../shared/ui/theme.stylex.ts";
+import { createCustomerMutationOptions, customersQueryOptions } from "./customer-api.ts";
 import { CustomerForm } from "./customer-form.tsx";
 import { CustomerList } from "./customer-list.tsx";
-import { CustomerMockControls } from "./customer-mock-controls.tsx";
 import { CustomersShell } from "./customers-shell.tsx";
-import { useCustomerMock } from "./use-customer-mock.ts";
 
 const panelId = "customer-register-panel";
 const panelTitleId = "customer-register-title";
@@ -24,18 +26,23 @@ const saveFailedNotice: NoticeContent = {
   description: "입력 내용은 그대로 있어요. 잠시 후 다시 저장해주세요.",
 };
 
-/** 고객 관리 화면(FE 검토용 가상 동작). 목록 조회·고객 등록 흐름과 결과 알림을 조립한다. */
+/** 고객 목록 조회·등록과 결과 알림을 조립한다. */
 export function CustomersPage() {
-  const {
-    query,
-    saving,
-    save,
-    reload: handleReload,
-    listOutcome,
-    setListOutcome: handleListOutcomeChange,
-    saveOutcome,
-    setSaveOutcome: handleSaveOutcomeChange,
-  } = useCustomerMock();
+  const queryClient = useQueryClient();
+  const { data, isPending, isError, isFetching, refetch } = useQuery(customersQueryOptions);
+  const { mutate, isPending: saving } = useMutation(createCustomerMutationOptions(queryClient));
+  const query = useMemo<CustomerListQuery>(
+    () =>
+      isPending || (isFetching && data === undefined)
+        ? { kind: "loading" }
+        : isError
+          ? { kind: "failed" }
+          : { kind: "loaded", customers: data },
+    [data, isError, isFetching, isPending],
+  );
+  const handleReload = useCallback(() => {
+    void refetch();
+  }, [refetch]);
   const [panelOpen, setPanelOpen] = useState(false);
   const [notice, setNotice] = useState<{ content: NoticeContent; id: number } | null>(null);
   const noticeSeq = useRef(0);
@@ -60,22 +67,25 @@ export function CustomersPage() {
 
   const handleSave = useCallback<CustomerFormProps["onSave"]>(
     (input, onDuplicate) => {
-      const started = save(input, (result) => {
-        if (result.kind === "duplicate") onDuplicate();
-        if (result.kind === "failed") showNotice(saveFailedNotice);
-        if (result.kind === "saved") {
+      if (saving) return;
+      // 이전 결과 알림이 새 저장 결과로 오해되지 않게 비운다.
+      setNotice(null);
+      mutate(input, {
+        onSuccess: (customer) => {
           closePanel();
           showNotice({
             tone: "success",
             title: "고객을 등록했어요.",
-            description: `${result.customer.name} 고객을 목록 맨 위에 추가했어요.`,
+            description: `${customer.name} 고객을 목록 맨 위에 추가했어요.`,
           });
-        }
+        },
+        onError: (error) => {
+          if (isHTTPError(error) && error.response.status === 409) onDuplicate();
+          else showNotice(saveFailedNotice);
+        },
       });
-      // 이전 결과 알림이 새 저장 결과로 오해되지 않게 비운다.
-      if (started) setNotice(null);
     },
-    [closePanel, save, showNotice],
+    [closePanel, mutate, saving, showNotice],
   );
 
   // 닫기 버튼이 사라지므로 등록 버튼으로 포커스를 돌려준다.
@@ -130,21 +140,6 @@ export function CustomersPage() {
 
         <div {...stylex.props(styles.list)}>
           <CustomerList query={query} onRetry={handleReload} />
-          <p {...stylex.props(styles.note)}>
-            지금은 가상 데이터예요. 새로고침하면 처음 예시로 돌아가니 실제 고객 정보는 입력하지
-            마세요.
-          </p>
-        </div>
-
-        <div {...stylex.props(styles.demo)}>
-          <CustomerMockControls
-            listOutcome={listOutcome}
-            onListOutcomeChange={handleListOutcomeChange}
-            saveOutcome={saveOutcome}
-            onSaveOutcomeChange={handleSaveOutcomeChange}
-            loading={query.kind === "loading"}
-            onReload={handleReload}
-          />
         </div>
       </div>
     </CustomersShell>
@@ -157,7 +152,7 @@ const styles = stylex.create({
   body: {
     display: "grid",
     gridTemplateColumns: "minmax(0, 1fr)",
-    gridTemplateAreas: "'header' 'panel' 'notice' 'list' 'demo'",
+    gridTemplateAreas: "'header' 'panel' 'notice' 'list'",
     alignItems: "start",
     gap: "16px",
     maxWidth: "1200px",
@@ -168,8 +163,8 @@ const styles = stylex.create({
       [wide]: "minmax(0, 1fr) 360px",
     },
     gridTemplateAreas: {
-      default: "'header' 'panel' 'notice' 'list' 'demo'",
-      [wide]: "'header panel' 'notice panel' 'list panel' 'demo panel'",
+      default: "'header' 'panel' 'notice' 'list'",
+      [wide]: "'header panel' 'notice panel' 'list panel'",
     },
   },
   header: {
@@ -230,14 +225,5 @@ const styles = stylex.create({
     borderColor: colors.border,
     borderRadius: "10px",
     backgroundColor: colors.surface,
-  },
-  note: {
-    margin: 0,
-    color: colors.textMuted,
-    fontSize: "12px",
-  },
-  demo: {
-    gridArea: "demo",
-    minWidth: 0,
   },
 });

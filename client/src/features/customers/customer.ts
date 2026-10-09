@@ -1,11 +1,12 @@
-// 고객 등록 입력 규칙(FE 검토용). 국가번호·자릿수 등 세부 정책은 실제 BE 연결 전에 정한다.
+import { z } from "zod";
 
-export interface Customer {
-  /** 가상 고객 식별자. 동명이인을 구분하는 key이며 화면의 행 번호와 다르다. */
-  id: string;
-  name: string;
-  phone: string;
-}
+export const customerSchema = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+  phone: z.string(),
+});
+
+export type Customer = z.infer<typeof customerSchema>;
 
 export type CustomerInput = {
   name: string;

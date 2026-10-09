@@ -18,11 +18,11 @@ export type SaveResult =
 /** 가상 예시 고객. 실제 고객 정보가 아니다. */
 export function exampleCustomers(): Customer[] {
   return [
-    { id: "c-1001", name: "김서연", phone: "010-0000-1001" },
-    { id: "c-1002", name: "이지우", phone: "010-0000-1002" },
-    { id: "c-1003", name: "박수빈", phone: "010-0000-1003" },
-    { id: "c-1004", name: "정하은", phone: "010-0000-1004" },
-    { id: "c-1005", name: "최윤서", phone: "010-0000-1005" },
+    { id: 1001, name: "김서연", phone: "010-0000-1001" },
+    { id: 1002, name: "이지우", phone: "010-0000-1002" },
+    { id: 1003, name: "박수빈", phone: "010-0000-1003" },
+    { id: 1004, name: "정하은", phone: "010-0000-1004" },
+    { id: 1005, name: "최윤서", phone: "010-0000-1005" },
   ];
 }
 
@@ -46,7 +46,7 @@ export function createMockCustomerStore() {
       if (customers.some((customer) => comparablePhone(customer.phone) === phone)) {
         return { kind: "duplicate" };
       }
-      const customer = { id: `c-${nextId}`, ...input };
+      const customer = { id: nextId, ...input };
       nextId += 1;
       customers = [customer, ...customers];
       return { kind: "saved", customer };

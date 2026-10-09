@@ -1,18 +1,34 @@
-import { Injectable } from '@nestjs/common';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
-import type { CreateCustomerDto } from './customers.schema.ts';
+import { Injectable } from '@nestjs/common';
+import { InjectDrizzle } from '@nestjs/drizzle';
+import { desc, eq } from 'drizzle-orm';
+
+import type { CreateCustomerDto } from './customers.schema.js';
+
+import { customers } from '../../db/schemas/customers.schema.js';
+
+type Customer = typeof customers.$inferSelect;
 
 @Injectable()
 export class CustomersRepository {
+  constructor(@InjectDrizzle() private readonly db: NodePgDatabase) {}
+
   findAll() {
-    return 'customer findAll';
+    return this.db.select().from(customers).orderBy(desc(customers.id));
   }
 
-  findById(id: string) {
-    return `customer - ${id}`;
+  async findById(id: number): Promise<Customer | undefined> {
+    const [customer] = await this.db.select().from(customers).where(eq(customers.id, id)).limit(1);
+    return customer;
   }
 
-  insert(customer: CreateCustomerDto) {
-    return `insert ${customer.name}`;
+  async insert(customer: CreateCustomerDto): Promise<Customer | undefined> {
+    const [created] = await this.db
+      .insert(customers)
+      .values(customer)
+      .onConflictDoNothing({ target: customers.phone })
+      .returning();
+    return created;
   }
 }

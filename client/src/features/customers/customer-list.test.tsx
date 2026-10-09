@@ -12,7 +12,7 @@ const failed: CustomerListQuery = { kind: "failed" };
 const empty: CustomerListQuery = { kind: "loaded", customers: [] };
 const loaded: CustomerListQuery = {
   kind: "loaded",
-  customers: [{ id: "c-2000", name: "김서연", phone: "010-1234-0000" }, ...exampleCustomers()],
+  customers: [{ id: 2000, name: "김서연", phone: "010-1234-0000" }, ...exampleCustomers()],
 };
 
 function render(query: CustomerListQuery) {

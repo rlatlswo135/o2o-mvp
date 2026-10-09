@@ -1,5 +1,8 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 
+import type { CreateCustomerDto } from './customers.schema.js';
+
+import { createCustomerSchema, customerIdSchema } from './customers.schema.js';
 import { CustomersService } from './customers.service.js';
 
 @Controller('customers')
@@ -7,13 +10,17 @@ export class CustomersController {
   constructor(private readonly customerService: CustomersService) {}
 
   @Get()
-  findAll(): string {
+  findAll() {
     return this.customerService.getCustomers();
   }
 
   @Get(':id')
-  findOne(@Param() params: { id: string }): string {
-    console.log(params);
-    return this.customerService.getCustomerById(params.id);
+  findOne(@Param('id', { schema: customerIdSchema }) id: number) {
+    return this.customerService.getCustomerById(id);
+  }
+
+  @Post()
+  create(@Body({ schema: createCustomerSchema }) input: CreateCustomerDto) {
+    return this.customerService.createCustomer(input);
   }
 }

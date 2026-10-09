@@ -16,9 +16,11 @@
   "dependencies": {
     "@stylexjs/stylex": "^0.19.1",
     "@tanstack/react-devtools": "latest",
+    "@tanstack/react-query": "^5.104.1",
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
     "flame-ui": "^1.0.1",
+    "ky": "^2.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "zod": "^4.6.5"
