@@ -1,6 +1,4 @@
-import 'dotenv/config';
-import { Module, StandardSchemaValidationPipe } from '@nestjs/common';
-import { APP_PIPE } from '@nestjs/core';
+import { Module } from '@nestjs/common';
 import { DrizzleModule } from '@nestjs/drizzle';
 import { drizzle } from 'drizzle-orm/node-postgres';
 
@@ -17,6 +15,6 @@ import { CustomersModule } from './customers/customers.module.js';
     CustomersModule,
   ],
   controllers: [AppController],
-  providers: [AppService, { provide: APP_PIPE, useClass: StandardSchemaValidationPipe }],
+  providers: [AppService],
 })
 export class AppModule {}
