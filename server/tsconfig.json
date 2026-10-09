@@ -5,6 +5,7 @@
     },
     "module": "nodenext",
     "moduleResolution": "nodenext",
+
     "resolvePackageJsonExports": true,
     "esModuleInterop": true,
     "isolatedModules": true,
@@ -21,6 +22,8 @@
     "skipLibCheck": true,
     "strict": true,
     "strictPropertyInitialization": false,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     "types": ["vite-plus/test/globals", "node"]
   }
 }

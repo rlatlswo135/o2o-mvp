@@ -53,6 +53,12 @@ export default defineConfig({
         },
       },
       {
+        files: ["server/db/**"],
+        rules: {
+          "import/no-default-export": "off",
+        },
+      },
+      {
         files: ["client/**"],
         plugins: ["react", "react-perf"],
         rules: {

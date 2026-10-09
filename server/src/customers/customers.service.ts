@@ -1,15 +1,16 @@
-import { Injectable } from "@nestjs/common";
-import { CustomersRepository } from "./customers.repository.js";
+import { Injectable } from '@nestjs/common';
+
+import { CustomersRepository } from './customers.repository.js';
 
 @Injectable()
 export class CustomersService {
-  constructor(private readonly customers:CustomersRepository){}
+  constructor(private readonly customers: CustomersRepository) {}
 
   getCustomers(): string {
-    return this.customers.findAll()
+    return this.customers.findAll();
   }
 
   getCustomerById(id: string): string {
-    return this.customers.findById(id)
+    return this.customers.findById(id);
   }
 }

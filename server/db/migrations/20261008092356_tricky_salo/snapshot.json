@@ -2,9 +2,7 @@
   "version": "8",
   "dialect": "postgres",
   "id": "3b1356e4-0d7f-4f72-b754-bb30f08aa625",
-  "prevIds": [
-    "00000000-0000-0000-0000-000000000000"
-  ],
+  "prevIds": ["00000000-0000-0000-0000-000000000000"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -61,9 +59,7 @@
       "table": "customers"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "customers_pkey",
       "schema": "public",
@@ -72,9 +68,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "phone"
-      ],
+      "columns": ["phone"],
       "nullsNotDistinct": false,
       "name": "customers_phone_key",
       "schema": "public",
