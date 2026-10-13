@@ -1,6 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { isHTTPError } from "ky";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import type { NoticeContent } from "@/shared/ui/notice/notice.tsx";
@@ -9,16 +8,19 @@ import { Button } from "@/shared/ui/button/button.tsx";
 import { LiveNotice } from "@/shared/ui/notice/notice.tsx";
 
 import type { CustomerFormProps } from "./customer-form.tsx";
-import type { CustomerListQuery } from "./customer-list.tsx";
+import type { CustomerListQuery } from "./customer.ts";
 
 import { colors } from "../../shared/ui/theme.stylex.ts";
-import { createCustomerMutationOptions, customersQueryOptions } from "./customer-api.ts";
+import { customersQueryOptions } from "./customer-api.ts";
+import { registerCustomerMutationOptions, toListQuery } from "./customer-flow.ts";
 import { CustomerForm } from "./customer-form.tsx";
 import { CustomerList } from "./customer-list.tsx";
 import { CustomersShell } from "./customers-shell.tsx";
 
 const panelId = "customer-register-panel";
 const panelTitleId = "customer-register-title";
+
+const duplicatePhoneMessage = "이미 등록된 전화번호예요. 번호를 확인해주세요.";
 
 const saveFailedNotice: NoticeContent = {
   tone: "danger",
@@ -30,14 +32,9 @@ const saveFailedNotice: NoticeContent = {
 export function CustomersPage() {
   const queryClient = useQueryClient();
   const { data, isPending, isError, isFetching, refetch } = useQuery(customersQueryOptions);
-  const { mutate, isPending: saving } = useMutation(createCustomerMutationOptions(queryClient));
+  const { mutate, isPending: saving } = useMutation(registerCustomerMutationOptions(queryClient));
   const query = useMemo<CustomerListQuery>(
-    () =>
-      isPending || (isFetching && data === undefined)
-        ? { kind: "loading" }
-        : isError
-          ? { kind: "failed" }
-          : { kind: "loaded", customers: data },
+    () => toListQuery({ data, isError, isFetching, isPending }),
     [data, isError, isFetching, isPending],
   );
   const handleReload = useCallback(() => {
@@ -66,22 +63,31 @@ export function CustomersPage() {
   }, []);
 
   const handleSave = useCallback<CustomerFormProps["onSave"]>(
-    (input, onDuplicate) => {
+    (input, showErrors) => {
       if (saving) return;
       // 이전 결과 알림이 새 저장 결과로 오해되지 않게 비운다.
       setNotice(null);
       mutate(input, {
-        onSuccess: (customer) => {
-          closePanel();
-          showNotice({
-            tone: "success",
-            title: "고객을 등록했어요.",
-            description: `${customer.name} 고객을 목록 맨 위에 추가했어요.`,
-          });
-        },
-        onError: (error) => {
-          if (isHTTPError(error) && error.response.status === 409) onDuplicate();
-          else showNotice(saveFailedNotice);
+        onSuccess: (result) => {
+          switch (result.kind) {
+            case "created":
+              closePanel();
+              showNotice({
+                tone: "success",
+                title: "고객을 등록했어요.",
+                description: `${result.customer.name} 고객을 목록 맨 위에 추가했어요.`,
+              });
+              break;
+            case "invalid":
+              showErrors(result.errors);
+              break;
+            case "duplicate":
+              showErrors({ phone: duplicatePhoneMessage });
+              break;
+            case "failed":
+              showNotice(saveFailedNotice);
+              break;
+          }
         },
       });
     },

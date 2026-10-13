@@ -22,7 +22,7 @@ function Home() {
       <p {...stylex.props(styles.screenLinks)}>
         업무 화면:{" "}
         <Link to="/customers" {...stylex.props(styles.screenLink)}>
-          고객 관리(가상 동작)
+          고객 관리
         </Link>
       </p>
 

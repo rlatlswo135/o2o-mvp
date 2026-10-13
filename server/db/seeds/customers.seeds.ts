@@ -1,8 +1,8 @@
 // oxlint-disable typescript/no-floating-promises
 import { reset, seed } from 'drizzle-seed';
 
-import { db } from '../index.ts';
-import { customers } from '../schemas/customers.schema.ts';
+import { db } from '../index.js';
+import { customers } from '../schemas/customers.schema.js';
 
 export async function main() {
   await reset(db, { customers });

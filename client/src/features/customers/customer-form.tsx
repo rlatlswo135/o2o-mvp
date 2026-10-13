@@ -10,7 +10,6 @@ import { Input } from "@/shared/ui/input/input.tsx";
 import type { CustomerFieldErrors, CustomerInput } from "./customer.ts";
 
 import { colors, controls } from "../../shared/ui/theme.stylex.ts";
-import { validateCustomerInput } from "./customer.ts";
 
 type FocusTarget = "name" | "phone";
 
@@ -20,15 +19,13 @@ export type CustomerFormProps = {
   /** 이름 입력. 패널이 열리거나 이미 열린 상태에서 등록 버튼을 누르면 여기로 포커스한다. */
   nameInputRef: RefObject<HTMLInputElement | null>;
   saving: boolean;
-  /** 확인을 통과한 값을 저장한다. 중복 전화번호면 onDuplicate를 불러 전화번호 오류로 표시한다. */
-  onSave: (input: CustomerInput, onDuplicate: () => void) => void;
+  /** 입력 값을 저장한다. 항목 오류가 있으면 showErrors로 해당 입력에 표시한다. */
+  onSave: (input: CustomerInput, showErrors: (errors: CustomerFieldErrors) => void) => void;
   /** 취소·닫기. 저장 중에는 호출하지 않는다. */
   onClose: () => void;
 };
 
-const duplicatePhoneMessage = "이미 등록된 전화번호예요. 번호를 확인해주세요.";
-
-/** 새 고객 등록 패널. 입력 값·항목 오류를 갖고, 저장 결과 반영(목록·알림)은 화면이 맡는다. */
+/** 새 고객 등록 패널. 입력 값·항목 오류 표시만 갖고, 확인·저장·결과 반영은 화면이 맡는다. */
 export function CustomerForm({
   titleId,
   nameInputRef,
@@ -65,24 +62,18 @@ export function CustomerForm({
     setErrors((current) => (current.phone ? { ...current, phone: undefined } : current));
   }, []);
 
+  const showErrors = useCallback((next: CustomerFieldErrors) => {
+    pendingFocus.current = next.name ? "name" : "phone";
+    setErrors(next);
+  }, []);
+
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       if (saving) return;
-
-      const validation = validateCustomerInput(values);
-      if (!validation.ok) {
-        pendingFocus.current = validation.errors.name ? "name" : "phone";
-        setErrors(validation.errors);
-        return;
-      }
-
-      onSave(validation.value, () => {
-        pendingFocus.current = "phone";
-        setErrors({ phone: duplicatePhoneMessage });
-      });
+      onSave(values, showErrors);
     },
-    [onSave, saving, values],
+    [onSave, saving, showErrors, values],
   );
 
   const handleClose = useCallback(() => {

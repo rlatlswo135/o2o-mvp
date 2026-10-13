@@ -8,6 +8,12 @@ export const customerSchema = z.object({
 
 export type Customer = z.infer<typeof customerSchema>;
 
+/** 목록 영역이 보여줄 조회 상태. */
+export type CustomerListQuery =
+  | { kind: "loading" }
+  | { kind: "loaded"; customers: ReadonlyArray<Customer> }
+  | { kind: "failed" };
+
 export type CustomerInput = {
   name: string;
   phone: string;
@@ -24,7 +30,7 @@ export type CustomerValidation =
 
 const allowedPhone = /^[\d\s-]+$/;
 
-/** 중복 비교용 전화번호. 공백·하이픈만 지우며 저장 값은 입력한 문자열 그대로 둔다. */
+/** 비교용 전화번호. 공백·하이픈만 지우며 저장 값은 입력한 문자열 그대로 둔다. */
 export function comparablePhone(phone: string) {
   return phone.replace(/[\s-]/g, "");
 }

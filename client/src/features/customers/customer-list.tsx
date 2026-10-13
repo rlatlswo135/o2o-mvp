@@ -14,14 +14,9 @@ import {
   TableRow,
 } from "@/shared/ui/table/table.tsx";
 
-import type { Customer } from "./customer.ts";
+import type { CustomerListQuery } from "./customer.ts";
 
 import { colors } from "../../shared/ui/theme.stylex.ts";
-
-export type CustomerListQuery =
-  | { kind: "loading" }
-  | { kind: "loaded"; customers: ReadonlyArray<Customer> }
-  | { kind: "failed" };
 
 export type CustomerListProps = {
   query: CustomerListQuery;

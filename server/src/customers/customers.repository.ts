@@ -1,30 +1,30 @@
-import { customers } from '@db/schemas/customers.schema.ts';
+import { customers } from '@db/schemas/customers.schema.js';
 import { Injectable } from '@nestjs/common';
 import { InjectDrizzle } from '@nestjs/drizzle';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
-import type { CreateCustomerDto } from './customers.schema.ts';
+import type { CreateCustomerDto } from './customers.schema.js';
 
 @Injectable()
 export class CustomersRepository {
   constructor(@InjectDrizzle() private readonly db: NodePgDatabase) {}
 
-  findAll() {
-    const data = this.db.select().from(customers);
+  async findAll() {
+    const data = await this.db.select().from(customers);
     return data;
   }
 
-  findById(id: string) {
-    // TODO: 체크해봐야함
-    const data = this.db
+  async findById(id: number) {
+    const data = await this.db
       .select()
       .from(customers)
-      .where(sql`id = ${id}`);
+      .where(eq(customers.id,id));
     return data;
   }
 
-  insert(customer: CreateCustomerDto) {
-    return `insert ${customer.name}`;
+  async insert(customer: CreateCustomerDto) {
+    const result = await this.db.insert(customers).values(customer).onConflictDoNothing({target:customers.phone}).returning({id:customers.id})
+    return result
   }
 }

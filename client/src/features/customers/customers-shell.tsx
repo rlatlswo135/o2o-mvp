@@ -21,12 +21,7 @@ export function CustomersShell({ children }: { children: ReactNode }) {
         <header {...stylex.props(styles.topBar)}>
           <p {...stylex.props(styles.brand)}>
             <strong>MORU</strong>
-            <span aria-hidden="true" {...stylex.props(styles.divider)}>
-              |
-            </span>
-            모루 네일(가상)
           </p>
-          <p {...stylex.props(styles.status)}>가상 데이터 · 저장 미연결</p>
         </header>
         <main {...stylex.props(styles.main)}>{children}</main>
       </div>
@@ -131,14 +126,6 @@ const styles = stylex.create({
     gap: "8px",
     margin: 0,
     fontSize: "14px",
-  },
-  divider: {
-    color: colors.border,
-  },
-  status: {
-    margin: 0,
-    color: colors.textMuted,
-    fontSize: "12px",
   },
   main: {
     flexGrow: 1,
