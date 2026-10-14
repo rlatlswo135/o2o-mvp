@@ -1,17 +1,17 @@
-import type { ChangeEvent, FormEvent, RefObject } from "react";
+import type { FormEvent, RefObject } from "react";
 
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useForm } from "@tanstack/react-form";
+import { useEffect } from "react";
 
 import { Button } from "@/shared/ui/button/button.tsx";
 import { Field } from "@/shared/ui/field/field.tsx";
 import { Input } from "@/shared/ui/input/input.tsx";
 
-import type { CustomerFieldErrors, CustomerInput } from "./customer.ts";
+import type { CustomerInput } from "./customers.schema.ts";
 
 import { colors, controls } from "../../shared/ui/theme.stylex.ts";
-
-type FocusTarget = "name" | "phone";
+import { customerInputSchema } from "./customers.schema.ts";
 
 export type CustomerFormProps = {
   /** 패널 제목 id. 패널 section의 접근 이름이 된다. */
@@ -19,13 +19,20 @@ export type CustomerFormProps = {
   /** 이름 입력. 패널이 열리거나 이미 열린 상태에서 등록 버튼을 누르면 여기로 포커스한다. */
   nameInputRef: RefObject<HTMLInputElement | null>;
   saving: boolean;
-  /** 입력 값을 저장한다. 항목 오류가 있으면 showErrors로 해당 입력에 표시한다. */
-  onSave: (input: CustomerInput, showErrors: (errors: CustomerFieldErrors) => void) => void;
+  /**
+   * 스키마 확인을 통과해 다듬어진(trim) 입력을 저장한다.
+   * 서버 확인에서 나온 항목 오류(중복 등)는 showErrors로 해당 입력에 표시한다.
+   */
+  onSave: (input: CustomerInput, showErrors: (errors: FieldErrors) => void) => void;
   /** 취소·닫기. 저장 중에는 호출하지 않는다. */
   onClose: () => void;
 };
 
-/** 새 고객 등록 패널. 입력 값·항목 오류 표시만 갖고, 확인·저장·결과 반영은 화면이 맡는다. */
+const fieldNames = ["name", "phone"] as const;
+
+type FieldErrors = Partial<Record<(typeof fieldNames)[number], string>>;
+
+/** 새 고객 등록 패널. 입력 값·항목 오류는 TanStack Form이 갖고, 저장·결과 반영은 화면이 맡는다. */
 export function CustomerForm({
   titleId,
   nameInputRef,
@@ -33,52 +40,39 @@ export function CustomerForm({
   onSave,
   onClose,
 }: CustomerFormProps) {
-  const [values, setValues] = useState<CustomerInput>({ name: "", phone: "" });
-  const [errors, setErrors] = useState<CustomerFieldErrors>({});
-  const phoneInputRef = useRef<HTMLInputElement>(null);
-  // 오류 문구가 입력에 연결된 뒤 포커스해야 보조기기가 오류를 함께 읽는다.
-  const pendingFocus = useRef<FocusTarget | null>(null);
+  const form = useForm({
+    defaultValues: { name: "", phone: "" },
+    // 제출할 때만 확인한다. 오류는 해당 입력을 고치면 사라지고 다음 제출에서 다시 확인한다.
+    validators: { onSubmit: customerInputSchema },
+    // 확인은 다듬은 값을 돌려주지 않으므로 통과한 값을 다시 parse해 저장 값을 얻는다. 여기서는 실패하지 않는다.
+    onSubmit: ({ value }) => onSave(customerInputSchema.parse(value), showErrors),
+  });
+
+  // 서버 오류도 제출 오류로 넣어 스키마 오류와 같은 방식(입력을 고치면 사라짐)으로 다룬다.
+  const showErrors = (errors: FieldErrors) => {
+    for (const name of fieldNames) {
+      const message = errors[name];
+      if (message === undefined) continue;
+      form.setFieldMeta(name, (meta) => ({
+        ...meta,
+        errorMap: { ...meta.errorMap, onSubmit: message },
+      }));
+    }
+  };
 
   useEffect(() => {
     nameInputRef.current?.focus();
   }, [nameInputRef]);
 
-  useEffect(() => {
-    const target = pendingFocus.current;
-    pendingFocus.current = null;
-    if (target === "name") nameInputRef.current?.focus();
-    if (target === "phone") phoneInputRef.current?.focus();
-  }, [errors, nameInputRef]);
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (saving) return;
+    void form.handleSubmit();
+  };
 
-  const handleNameChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const name = event.target.value;
-    setValues((current) => ({ ...current, name }));
-    setErrors((current) => (current.name ? { ...current, name: undefined } : current));
-  }, []);
-
-  const handlePhoneChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const phone = event.target.value;
-    setValues((current) => ({ ...current, phone }));
-    setErrors((current) => (current.phone ? { ...current, phone: undefined } : current));
-  }, []);
-
-  const showErrors = useCallback((next: CustomerFieldErrors) => {
-    pendingFocus.current = next.name ? "name" : "phone";
-    setErrors(next);
-  }, []);
-
-  const handleSubmit = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (saving) return;
-      onSave(values, showErrors);
-    },
-    [onSave, saving, showErrors, values],
-  );
-
-  const handleClose = useCallback(() => {
+  const handleClose = () => {
     if (!saving) onClose();
-  }, [onClose, saving]);
+  };
 
   return (
     <section aria-labelledby={titleId} {...stylex.props(styles.panel)}>
@@ -104,35 +98,44 @@ export function CustomerForm({
         {...stylex.props(styles.form)}
       >
         <p {...stylex.props(styles.eyebrow)}>CUSTOMER DETAILS</p>
-        <Field label="이름" error={errors.name} required>
-          <Input
-            ref={nameInputRef}
-            name="name"
-            autoComplete="off"
-            placeholder="고객 이름 입력"
-            value={values.name}
-            readOnly={saving}
-            onChange={handleNameChange}
-          />
-        </Field>
-        <Field
-          label="전화번호"
-          description="예약 안내에 사용할 연락처를 입력해주세요."
-          error={errors.phone}
-          required
-        >
-          <Input
-            ref={phoneInputRef}
-            name="phone"
-            type="tel"
-            inputMode="tel"
-            autoComplete="off"
-            placeholder="010-0000-0000"
-            value={values.phone}
-            readOnly={saving}
-            onChange={handlePhoneChange}
-          />
-        </Field>
+        <form.Field name="name">
+          {(field) => (
+            <Field label="이름" error={firstError(field.state.meta.errors)} required>
+              <Input
+                ref={nameInputRef}
+                name={field.name}
+                autoComplete="off"
+                placeholder="고객 이름 입력"
+                value={field.state.value}
+                readOnly={saving}
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            </Field>
+          )}
+        </form.Field>
+        <form.Field name="phone">
+          {(field) => (
+            <Field
+              label="전화번호"
+              description="예약 안내에 사용할 연락처를 입력해주세요."
+              error={firstError(field.state.meta.errors)}
+              required
+            >
+              <Input
+                name={field.name}
+                type="tel"
+                inputMode="tel"
+                autoComplete="off"
+                placeholder="010-0000-0000"
+                value={field.state.value}
+                readOnly={saving}
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            </Field>
+          )}
+        </form.Field>
         <p {...stylex.props(styles.info)}>
           같은 전화번호가 이미 등록되어 있으면 저장할 때 알려드려요.
         </p>
@@ -152,6 +155,12 @@ export function CustomerForm({
       <p {...stylex.props(styles.footnote)}>저장한 고객 정보는 서버에 보관돼요.</p>
     </section>
   );
+}
+
+/** 항목의 첫 오류 문구. 스키마 오류는 issue 객체, 서버 오류는 문자열로 들어온다. */
+function firstError(errors: ReadonlyArray<string | { message: string } | undefined>) {
+  const [error] = errors;
+  return typeof error === "string" ? error : error?.message;
 }
 
 const styles = stylex.create({

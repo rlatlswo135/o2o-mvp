@@ -1,7 +1,7 @@
 import type { ChangeEvent } from "react";
 
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 
 import { AmountDisplay, AmountInput } from "@/shared/ui/amount-field/amount-field.tsx";
 import { parseAmount } from "@/shared/ui/amount-field/amount-field.util.ts";
@@ -23,12 +23,12 @@ export function AmountReview() {
   const [amountText, setAmountText] = useState("-10000");
   const parsed = parseAmount(amountText);
 
-  const handleReasonChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
+  const handleReasonChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     setReason(event.target.value);
-  }, []);
-  const handleAmountChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+  };
+  const handleAmountChange = (event: ChangeEvent<HTMLInputElement>) => {
     setAmountText(event.target.value);
-  }, []);
+  };
 
   return (
     <>

@@ -1,7 +1,7 @@
 import type { ChangeEvent } from "react";
 
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 
 import type { BadgeTone } from "@/shared/ui/badge/badge.tsx";
 
@@ -62,9 +62,9 @@ export function TableReview() {
   const [selectedId, setSelectedId] = useState("lee");
   const selected = rows.find((row) => row.id === selectedId);
 
-  const handleSelect = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+  const handleSelect = (event: ChangeEvent<HTMLInputElement>) => {
     setSelectedId(event.target.value);
-  }, []);
+  };
 
   return (
     <>

@@ -1,7 +1,7 @@
 import type { ChangeEvent } from "react";
 
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 
 import { Checkbox, Radio, RadioGroup, Switch } from "@/shared/ui/choice/choice.tsx";
 import { Field } from "@/shared/ui/field/field.tsx";
@@ -50,14 +50,14 @@ export function SelectionReview() {
   const [values, setValues] = useState(initialValues);
 
   // 각 컨트롤의 name을 상태 키로 쓴다. 체크박스·스위치는 checked, 나머지는 value.
-  const handleChange = useCallback((event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name } = event.target;
     const next =
       event.target instanceof HTMLInputElement && event.target.type === "checkbox"
         ? event.target.checked
         : event.target.value;
     setValues((prev) => ({ ...prev, [name]: next }));
-  }, []);
+  };
 
   return (
     <>

@@ -1,10 +1,13 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { z } from "zod";
 
-import type { Customer, CustomerInput } from "./customer.ts";
+import { resolveTableState } from "@/shared/ui/data-table/data-table.tsx";
 
-import { customersQueryOptions } from "./customer-api.ts";
-import { registerCustomer, toListQuery } from "./customer-flow.ts";
+import type { Customer, CustomerInput } from "./customers.schema.ts";
+
+import { customerQueries, registerCustomer } from "./customers.api.ts";
+import { customerInputSchema } from "./customers.schema.ts";
 
 // 경계는 서버와의 HTTP 계약 하나다. 그 안쪽(ky·zod·query 캐시·입력 확인)은 전부 실물로 돌린다.
 vi.hoisted(() => {
@@ -72,24 +75,32 @@ function startServer(seed?: ReadonlyArray<Customer>) {
   vi.stubGlobal("fetch", (request: Request) => server.handle(request));
 }
 
-/** 고객 화면이 목록을 열어 둔 상태. 화면이 보는 값은 toListQuery를 거친 상태다. */
+/** 고객 화면이 목록을 열어 둔 상태. 화면이 보는 값은 목록 표(DataTable)가 그릴 상태다. */
 function openCustomerList() {
-  const observer = new QueryObserver(client, customersQueryOptions);
+  const observer = new QueryObserver(client, customerQueries.list());
   unsubscribers.push(observer.subscribe(() => {}));
   return {
-    screen: () => toListQuery(observer.getCurrentResult()),
+    screen: () => resolveTableState(observer.getCurrentResult()),
     reload: () => observer.refetch(),
     settled: () => vi.waitFor(() => expect(observer.getCurrentResult().isFetching).toBe(false)),
   };
 }
 
-function register(input: CustomerInput) {
-  return registerCustomer(client, input);
+function loaded(rows: ReadonlyArray<Customer>) {
+  return { kind: "loaded", rows, refreshFailed: false };
+}
+
+/** 화면이 저장하는 길. 폼은 스키마 확인을 통과한 입력을 parse해 다듬은 값을 넘긴다. */
+function register(input: { name: string; phone: string }) {
+  return registerCustomer(client, customerInputSchema.parse(input));
 }
 
 beforeEach(() => {
   client = new QueryClient({
-    defaultOptions: { queries: { gcTime: Infinity }, mutations: { gcTime: Infinity } },
+    defaultOptions: {
+      queries: { gcTime: Infinity, retry: false },
+      mutations: { gcTime: Infinity },
+    },
   });
   startServer();
 });
@@ -111,11 +122,15 @@ describe("고객 목록 조회", () => {
 
     expect(list.screen()).toEqual({ kind: "loading" });
     await list.settled();
-    expect(list.screen()).toEqual({ kind: "loaded", customers: [lee, kim] });
+    expect(list.screen()).toEqual(loaded([lee, kim]));
   });
 
   it.each([
-    { situation: "고객이 없는 서버", setup: () => {}, expected: { kind: "loaded", customers: [] } },
+    {
+      situation: "고객이 없는 서버",
+      setup: () => {},
+      expected: { kind: "loaded", rows: [], refreshFailed: false },
+    },
     { situation: "서버 오류(500)", setup: () => server.fail(500), expected: { kind: "failed" } },
     {
       situation: "서버에 닿지 않음",
@@ -151,7 +166,49 @@ describe("고객 목록 조회", () => {
     const reloading = list.reload();
     expect(list.screen()).toEqual({ kind: "loading" });
     await reloading;
-    expect(list.screen()).toEqual({ kind: "loaded", customers: [kim] });
+    expect(list.screen()).toEqual(loaded([kim]));
+  });
+
+  it("다시 불러오기가 실패해도 보이던 목록을 유지하고 실패만 따로 알린다", async () => {
+    startServer([kim]);
+    const list = openCustomerList();
+    await list.settled();
+
+    server.fail(500);
+    await list.reload();
+    expect(list.screen()).toEqual({ kind: "loaded", rows: [kim], refreshFailed: true });
+
+    // 다시 시도하는 동안에는 실패 표시를 내리고, 성공하면 최신 목록으로 바뀐다.
+    server.recover();
+    const reloading = list.reload();
+    expect(list.screen()).toEqual(loaded([kim]));
+    await reloading;
+    expect(list.screen()).toEqual(loaded([kim]));
+  });
+});
+
+describe("고객 등록 입력 확인", () => {
+  // 확인에 걸린 입력은 폼이 저장으로 넘기지 않으므로 서버에 닿지 않는다.
+  it.each([
+    {
+      case: "이름과 전화번호가 비어 있음",
+      input: { name: "   ", phone: "" },
+      errors: { name: ["고객 이름을 입력해주세요."], phone: ["전화번호를 입력해주세요."] },
+    },
+    {
+      case: "숫자 없이 공백·하이픈만 있는 전화번호",
+      input: { name: "김서연", phone: " - - " },
+      errors: { phone: ["전화번호를 입력해주세요."] },
+    },
+    ...["010-0000-100a", "+82 10 0000 1001", "010.0000.1001"].map((phone) => ({
+      case: `허용되지 않는 문자가 든 전화번호 ${phone}`,
+      input: { name: "김서연", phone },
+      errors: { phone: ["전화번호는 숫자, 공백, 하이픈(-)만 입력할 수 있어요."] },
+    })),
+  ])("$case: 항목마다 오류를 하나씩만 알린다", ({ input, errors }) => {
+    const { error } = customerInputSchema.safeParse(input);
+
+    expect(error && z.flattenError(error).fieldErrors).toEqual(errors);
   });
 });
 
@@ -170,7 +227,7 @@ describe("고객 등록", () => {
     ]);
     expect(list.screen()).toMatchObject({
       kind: "loaded",
-      customers: [{ name: "이지우" }, { name: kim.name }],
+      rows: [{ name: "이지우" }, { name: kim.name }],
     });
     // 저장 뒤 서버 순서로 다시 맞춘다.
     expect(server.requests).toEqual(["GET /customers", "POST /customers", "GET /customers"]);
@@ -183,30 +240,6 @@ describe("고객 등록", () => {
     expect(server.stored()).toEqual([{ name: "김서연", phone: "010-0000-0001" }]);
   });
 
-  it.each([
-    {
-      case: "이름과 전화번호가 비어 있음",
-      input: { name: "   ", phone: "" },
-      errors: { name: "고객 이름을 입력해주세요.", phone: "전화번호를 입력해주세요." },
-    },
-    {
-      case: "숫자 없이 공백·하이픈만 있는 전화번호",
-      input: { name: "김서연", phone: " - - " },
-      errors: { phone: "전화번호를 입력해주세요." },
-    },
-    ...["010-0000-100a", "+82 10 0000 1001", "010.0000.1001"].map((phone) => ({
-      case: `허용되지 않는 문자가 든 전화번호 ${phone}`,
-      input: { name: "김서연", phone },
-      errors: { phone: "전화번호는 숫자, 공백, 하이픈(-)만 입력할 수 있어요." },
-    })),
-  ])(
-    "입력 확인에 걸리면($case) 항목 오류만 알리고 서버로 보내지 않는다",
-    async ({ input, errors }) => {
-      expect(await register(input)).toEqual({ kind: "invalid", errors });
-      expect(server.requests).toEqual([]);
-    },
-  );
-
   it("이미 있는 전화번호는 중복으로 알리고 목록은 그대로 둔다", async () => {
     startServer([kim]);
     const list = openCustomerList();
@@ -214,7 +247,7 @@ describe("고객 등록", () => {
 
     expect(await register({ name: "다른 사람", phone: kim.phone })).toEqual({ kind: "duplicate" });
     expect(server.stored()).toEqual([{ name: kim.name, phone: kim.phone }]);
-    expect(list.screen()).toEqual({ kind: "loaded", customers: [kim] });
+    expect(list.screen()).toEqual(loaded([kim]));
   });
 
   it.each([500, "network" as const])(
@@ -226,7 +259,7 @@ describe("고객 등록", () => {
       server.fail(fault);
 
       expect(await register({ name: "이지우", phone: lee.phone })).toEqual({ kind: "failed" });
-      expect(list.screen()).toEqual({ kind: "loaded", customers: [kim] });
+      expect(list.screen()).toEqual(loaded([kim]));
     },
   );
 
@@ -246,7 +279,7 @@ describe("고객 등록", () => {
     await vi.waitFor(() => expect(server.requests).toEqual(["GET /customers"]));
 
     await register({ name: "이지우", phone: lee.phone });
-    const expected = { kind: "loaded", customers: [{ name: "이지우" }, { name: kim.name }] };
+    const expected = { kind: "loaded", rows: [{ name: "이지우" }, { name: kim.name }] };
     expect(list.screen()).toMatchObject(expected);
 
     // 처음 요청한 조회(고객이 김서연뿐이던 시점)의 응답이 이제야 도착한다.

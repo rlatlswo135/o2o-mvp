@@ -1,7 +1,7 @@
 import type { ChangeEvent } from "react";
 
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/shared/ui/button/button.tsx";
 import { Checkbox } from "@/shared/ui/choice/choice.tsx";
@@ -34,39 +34,36 @@ export function DialogReview() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [confirmCount, setConfirmCount] = useState(0);
 
-  const handleOpen = useCallback(() => {
+  const handleOpen = () => {
     setReason(initialReason);
     setOutcome(null);
-  }, []);
+  };
   // 확인으로 닫혔으면 그 결과를 유지하고, 그 밖의 닫힘은 취소로 기록한다.
-  const handleClose = useCallback(() => {
+  const handleClose = () => {
     setOutcome((current) => current ?? { kind: "cancelled" });
-  }, []);
-  const handleConfirm = useCallback(() => {
+  };
+  const handleConfirm = () => {
     setOutcome({ kind: "confirmed", reason });
     setConfirmCount((count) => count + 1);
-  }, [reason]);
-  const handleReasonChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+  };
+  const handleReasonChange = (event: ChangeEvent<HTMLInputElement>) => {
     setReason(event.target.value);
-  }, []);
-  const handleLongChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+  };
+  const handleLongChange = (event: ChangeEvent<HTMLInputElement>) => {
     setLong(event.target.checked);
-  }, []);
+  };
 
-  const actions = useMemo(
-    () => (
-      <>
-        <DialogClose>
-          <Button ref={cancelRef} variant="secondary">
-            돌아가기
-          </Button>
-        </DialogClose>
-        <DialogClose>
-          {({ close }) => <ConfirmButton close={close} onConfirm={handleConfirm} />}
-        </DialogClose>
-      </>
-    ),
-    [handleConfirm],
+  const actions = (
+    <>
+      <DialogClose>
+        <Button ref={cancelRef} variant="secondary">
+          돌아가기
+        </Button>
+      </DialogClose>
+      <DialogClose>
+        {({ close }) => <ConfirmButton close={close} onConfirm={handleConfirm} />}
+      </DialogClose>
+    </>
   );
 
   return (
@@ -120,10 +117,10 @@ export function DialogReview() {
 
 /** 확인 동작을 먼저 기록한 뒤 닫는다. 닫힘 통지(onClose)가 이 결과를 취소로 덮지 않는다. */
 function ConfirmButton({ close, onConfirm }: { close: () => void; onConfirm: () => void }) {
-  const handleClick = useCallback(() => {
+  const handleClick = () => {
     onConfirm();
     close();
-  }, [close, onConfirm]);
+  };
 
   return (
     <Button variant="danger" onClick={handleClick}>

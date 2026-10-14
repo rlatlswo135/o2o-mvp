@@ -1,7 +1,7 @@
 import type { ChangeEvent, ChangeEventHandler, ComponentPropsWithRef, ReactNode } from "react";
 
 import * as stylex from "@stylexjs/stylex";
-import { createContext, use, useCallback, useId, useMemo } from "react";
+import { createContext, use, useId } from "react";
 
 import { a11yStyles, groupStyles } from "../internal/control-styles.js";
 import { colors, controls } from "../theme.stylex.js";
@@ -86,10 +86,7 @@ export function RadioGroup({
   const generatedName = useId();
   const groupName = name ?? generatedName;
 
-  const group = useMemo(
-    () => ({ name: groupName, value, defaultValue, disabled, onChange }),
-    [groupName, value, defaultValue, disabled, onChange],
-  );
+  const group = { name: groupName, value, defaultValue, disabled, onChange };
 
   return (
     <fieldset disabled={disabled} {...stylex.props(groupStyles.fieldset)}>
@@ -133,14 +130,10 @@ export function Radio({
         ? defaultChecked
         : group.defaultValue === value;
 
-  const groupOnChange = group?.onChange;
-  const handleChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      onChange?.(event);
-      groupOnChange?.(event);
-    },
-    [onChange, groupOnChange],
-  );
+  const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
+    onChange?.(event);
+    group?.onChange?.(event);
+  };
 
   return (
     <label {...stylex.props(styles.label, isDisabled && styles.labelDisabled)}>

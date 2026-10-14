@@ -53,7 +53,7 @@ export default defineConfig({
       },
       {
         files: ["client/**"],
-        plugins: ["react", "react-perf"],
+        plugins: ["react"],
         rules: {
           // react
           "react/self-closing-comp": "error",
@@ -68,11 +68,7 @@ export default defineConfig({
           "react/jsx-no-duplicate-props": "error",
           "react/jsx-key": "error",
           "react/jsx-handler-names": "error",
-          // react-perf
-          "react-perf/jsx-no-jsx-as-prop": "error",
-          "react-perf/jsx-no-new-array-as-prop": "error",
-          "react-perf/jsx-no-new-function-as-prop": "error",
-          "react-perf/jsx-no-new-object-as-prop": "error",
+          // 메모이제이션은 React Compiler에 맡기므로 react-perf 규칙은 두지 않는다.
         },
       },
     ],

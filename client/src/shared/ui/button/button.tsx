@@ -1,7 +1,6 @@
 import type { ComponentPropsWithRef, MouseEvent } from "react";
 
 import * as stylex from "@stylexjs/stylex";
-import { useCallback } from "react";
 
 import { colors, controls } from "../theme.stylex.js";
 
@@ -21,16 +20,13 @@ export function Button({
   children,
   ...props
 }: ButtonProps) {
-  const handleClick = useCallback(
-    (event: MouseEvent<HTMLButtonElement>) => {
-      if (loading) {
-        event.preventDefault();
-        return;
-      }
-      onClick?.(event);
-    },
-    [loading, onClick],
-  );
+  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (loading) {
+      event.preventDefault();
+      return;
+    }
+    onClick?.(event);
+  };
 
   return (
     <button

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import * as stylex from "@stylexjs/stylex";
-import { createContext, use, useId, useMemo } from "react";
+import { createContext, use, useId } from "react";
 
 import { colors, controls } from "../theme.stylex.js";
 
@@ -39,10 +39,7 @@ export function Field({ label, description, error, required = false, id, childre
   const describedBy = joinIds(descriptionId, errorId);
   const invalid = Boolean(error);
 
-  const control = useMemo(
-    () => ({ id: controlId, describedBy, invalid, required }),
-    [controlId, describedBy, invalid, required],
-  );
+  const control = { id: controlId, describedBy, invalid, required };
 
   return (
     <div {...stylex.props(styles.root)}>

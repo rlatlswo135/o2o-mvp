@@ -2,7 +2,7 @@ import type { MouseEvent, PointerEvent, ReactNode, RefObject } from "react";
 
 import * as stylex from "@stylexjs/stylex";
 import { Dialog as FlameDialog } from "flame-ui";
-import { useCallback, useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 
 import { colors, controls } from "../theme.stylex.js";
 
@@ -22,24 +22,31 @@ export type DialogProps = {
 export function Dialog({ initialFocusRef, onOpen, onClose, children }: DialogProps) {
   const restoreScroll = useRef<(() => void) | null>(null);
 
-  const releaseScroll = useCallback(() => {
+  const releaseScroll = () => {
     restoreScroll.current?.();
     restoreScroll.current = null;
-  }, []);
+  };
 
   // flame-ui는 showModal() 직후 onOpen을 부른다.
-  const handleOpen = useCallback(() => {
+  const handleOpen = () => {
     restoreScroll.current ??= lockPageScroll();
     onOpen?.();
     initialFocusRef?.current?.focus();
-  }, [initialFocusRef, onOpen]);
+  };
 
-  const handleClose = useCallback(() => {
+  const handleClose = () => {
     releaseScroll();
     onClose?.();
-  }, [releaseScroll, onClose]);
+  };
 
-  useEffect(() => releaseScroll, [releaseScroll]);
+  // 열린 채 언마운트되면 스크롤 잠금을 풀어준다.
+  useEffect(
+    () => () => {
+      restoreScroll.current?.();
+      restoreScroll.current = null;
+    },
+    [],
+  );
 
   return (
     <FlameDialog keepMounted onOpen={handleOpen} onClose={handleClose}>
@@ -92,15 +99,15 @@ export function DialogContent({
   // 누른 곳과 뗀 곳이 모두 배경(dialog 요소 자체)일 때만 닫는다.
   // 패널 안에서 눌러 배경에서 떼면 click이 dialog로 오지만 닫지 않는다.
   const pressedOnBackdrop = useRef(false);
-  const handlePointerDown = useCallback((event: PointerEvent<HTMLDialogElement>) => {
+  const handlePointerDown = (event: PointerEvent<HTMLDialogElement>) => {
     pressedOnBackdrop.current = event.target === event.currentTarget;
-  }, []);
-  const handleClick = useCallback((event: MouseEvent<HTMLDialogElement>) => {
+  };
+  const handleClick = (event: MouseEvent<HTMLDialogElement>) => {
     if (pressedOnBackdrop.current && event.target === event.currentTarget) {
       event.currentTarget.close();
     }
     pressedOnBackdrop.current = false;
-  }, []);
+  };
 
   return (
     <FlameDialog.Content
