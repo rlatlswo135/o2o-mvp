@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    // client(Vite)와 server(Node 타입 제거) 양쪽이 이 소스를 그대로 읽는다.
+    // 그래서 타입 제거만으로 실행되는 문법만 허용하고, 상대 import에는 .ts 확장자를 붙인다.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    // 브라우저와 Node 어느 쪽 전역도 기대하지 않는다.
+    "types": [],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true
+  },
+  "include": ["contracts"]
+}

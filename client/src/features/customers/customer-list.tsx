@@ -1,3 +1,4 @@
+import type { Customer } from "@o2o/shared/contracts";
 import type { ReactNode } from "react";
 
 import * as stylex from "@stylexjs/stylex";
@@ -5,9 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import type { DataTableColumn } from "@/shared/ui/data-table/data-table.tsx";
 
+import { formatPhone } from "@/shared/format/phone.ts";
 import { DataTable } from "@/shared/ui/data-table/data-table.tsx";
-
-import type { Customer } from "./customers.schema.ts";
 
 import { colors } from "../../shared/ui/theme.stylex.ts";
 import { customerQueries } from "./customers.api.ts";
@@ -28,7 +28,7 @@ const columns: ReadonlyArray<DataTableColumn<Customer>> = [
   {
     key: "phone",
     header: "전화번호",
-    cell: (customer) => <span {...stylex.props(styles.phone)}>{customer.phone}</span>,
+    cell: (customer) => <span {...stylex.props(styles.phone)}>{formatPhone(customer.phone)}</span>,
   },
 ];
 

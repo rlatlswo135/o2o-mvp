@@ -12,15 +12,15 @@ describe("api", () => {
     await expect(import("./api.ts")).rejects.toThrow("VITE_SERVER_URL");
   });
 
-  it("환경변수의 서버 경로를 기준으로 상대 endpoint를 요청한다", async () => {
+  it("환경변수의 서버 경로 아래로 계약의 경로를 요청한다", async () => {
     vi.stubEnv("VITE_SERVER_URL", "https://api.example.test/v1/");
     const fetch = vi
-      .fn<(request: Request) => Promise<Response>>()
-      .mockResolvedValue(Response.json({ ok: true }));
+      .fn<(url: string, init: RequestInit) => Promise<Response>>()
+      .mockResolvedValue(Response.json([]));
     vi.stubGlobal("fetch", fetch);
     const { api } = await import("./api.ts");
 
-    expect(await api.get("health").json()).toEqual({ ok: true });
-    expect(fetch.mock.calls[0]?.[0].url).toBe("https://api.example.test/v1/health");
+    expect(await api.customers.list()).toEqual([]);
+    expect(fetch.mock.calls[0]?.[0]).toBe("https://api.example.test/v1/customers");
   });
 });

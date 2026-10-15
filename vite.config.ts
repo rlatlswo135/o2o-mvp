@@ -52,6 +52,22 @@ export default defineConfig({
         },
       },
       {
+        // shared는 브라우저와 Node 양쪽에서 실행된다. zod와 @orpc/* 외 런타임에 기대지 않는다.
+        files: ["shared/**"],
+        rules: {
+          "no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                { group: ["node:*"], message: "shared는 브라우저에서도 실행되므로 Node 모듈을 쓰지 않는다." },
+                { group: ["**/client/**", "**/server/**"], message: "shared는 client와 server를 import하지 않는다." },
+              ],
+            },
+          ],
+          "no-restricted-globals": ["error", "process"],
+        },
+      },
+      {
         files: ["client/**"],
         plugins: ["react"],
         rules: {

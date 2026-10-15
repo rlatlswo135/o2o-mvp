@@ -1,3 +1,5 @@
+import type { CustomerInput } from "@o2o/shared/contracts";
+
 import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
@@ -6,7 +8,6 @@ import { Button } from "@/shared/ui/button/button.tsx";
 import { toast } from "@/shared/ui/toast/toast.tsx";
 
 import type { CustomerFormProps } from "./customer-form.tsx";
-import type { CustomerInput } from "./customers.schema.ts";
 
 import { colors } from "../../shared/ui/theme.stylex.ts";
 import { CustomerForm } from "./customer-form.tsx";

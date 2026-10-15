@@ -1,5 +1,7 @@
+import type { CustomerInput } from "@o2o/shared/contracts";
 import type { FormEvent, RefObject } from "react";
 
+import { customerInputSchema } from "@o2o/shared/contracts";
 import * as stylex from "@stylexjs/stylex";
 import { useForm } from "@tanstack/react-form";
 import { useEffect } from "react";
@@ -8,10 +10,7 @@ import { Button } from "@/shared/ui/button/button.tsx";
 import { Field } from "@/shared/ui/field/field.tsx";
 import { Input } from "@/shared/ui/input/input.tsx";
 
-import type { CustomerInput } from "./customers.schema.ts";
-
 import { colors, controls } from "../../shared/ui/theme.stylex.ts";
-import { customerInputSchema } from "./customers.schema.ts";
 
 export type CustomerFormProps = {
   /** 패널 제목 id. 패널 section의 접근 이름이 된다. */
