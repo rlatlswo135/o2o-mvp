@@ -1,8 +1,11 @@
+import type { Customer, CustomerInput } from '@o2o/shared/contracts';
+
 import { Injectable } from '@nestjs/common';
 
-import type { CreateCustomerDto } from './customers.schema.js';
-
 import { CustomersRepository } from './customers.repository.js';
+
+// 서비스는 HTTP와 oRPC를 모른다. 결과만 돌려주고, 응답 코드로 바꾸는 일은 컨트롤러가 한다.
+export type CreateCustomerResult = { kind: 'created'; customer: Customer } | { kind: 'duplicate' };
 
 @Injectable()
 export class CustomersService {
@@ -16,7 +19,8 @@ export class CustomersService {
     return this.customers.findById(id);
   }
 
-  createCustomer(createCustomerDto: CreateCustomerDto) {
-    return this.customers.insert(createCustomerDto);
+  async createCustomer(input: CustomerInput): Promise<CreateCustomerResult> {
+    const customer = await this.customers.insert(input);
+    return customer ? { kind: 'created', customer } : { kind: 'duplicate' };
   }
 }

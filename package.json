@@ -11,7 +11,7 @@
     "harness": "node .harness/bin/c2h.mjs start --attach",
     "client": "pnpm --filter \"@client\"",
     "server": "pnpm --filter \"@server\"",
-    "start:all":"pnpm client dev && pnpm server start:dev",
+    "start:all": "pnpm client dev & pnpm server start:dev & wait",
     "prepare": "husky"
   },
   "devDependencies": {

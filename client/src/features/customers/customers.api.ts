@@ -1,13 +1,10 @@
+import type { Customer, CustomerInput } from "@o2o/shared/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 
+import { isDefinedError, safe } from "@orpc/client";
 import { queryOptions } from "@tanstack/react-query";
-import { isHTTPError } from "ky";
 
 import { api } from "@/shared/api/api.ts";
-
-import type { Customer, CustomerInput } from "./customers.schema.ts";
-
-import { customerSchema } from "./customers.schema.ts";
 
 export const customerQueries = {
   /** 고객 관련 쿼리 전체를 가리키는 부분 키. 일괄 무효화용. */
@@ -15,7 +12,13 @@ export const customerQueries = {
   list: () =>
     queryOptions({
       queryKey: [...customerQueries.all(), "list"],
-      queryFn: ({ signal }) => api.get("customers", { signal }).json(customerSchema.array()),
+      queryFn: ({ signal }) => api.customers.list(undefined, { signal }),
+    }),
+  /** 고객 한 명. 없는 고객이면 NOT_FOUND로 실패한다(`error instanceof ORPCError && error.code === "NOT_FOUND"`). */
+  detail: (id: number) =>
+    queryOptions({
+      queryKey: [...customerQueries.all(), "detail", id],
+      queryFn: ({ signal }) => api.customers.find({ id }, { signal }),
     }),
 };
 
@@ -32,11 +35,9 @@ export async function registerCustomer(
   queryClient: QueryClient,
   input: CustomerInput,
 ): Promise<RegisterResult> {
-  let customer: Customer;
-  try {
-    customer = await api.post("customers", { json: input }).json(customerSchema);
-  } catch (error) {
-    return isHTTPError(error) && error.response.status === 409
+  const { error, data: customer } = await safe(api.customers.create(input));
+  if (error) {
+    return isDefinedError(error) && error.code === "CONFLICT"
       ? { kind: "duplicate" }
       : { kind: "failed" };
   }

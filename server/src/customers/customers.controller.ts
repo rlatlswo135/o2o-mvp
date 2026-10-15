@@ -1,24 +1,30 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
+import { contract } from '@o2o/shared/contracts';
+import { Implement } from '@orpc/nest';
+import { implement } from '@orpc/server';
 
 import { CustomersService } from './customers.service.js';
-import { createCustomerSchema, type CreateCustomerDto } from './customers.schema.ts';
 
-@Controller('customers')
+// 경로, 입력 검증, 응답 모양, 오류 종류는 @o2o/shared/contracts의 contract가 정한다.
+// 컨트롤러는 서비스 결과를 계약의 오류로 바꾸는 일만 한다.
+@Controller()
 export class CustomersController {
   constructor(private readonly customerService: CustomersService) {}
 
-  @Get()
-  findAll() {
-    return this.customerService.getCustomers();
-  }
-
-  @Get(':id')
-  findOne(@Param('id',ParseIntPipe) id:number) {
-    return this.customerService.getCustomerById(id);
-  }
-
-  @Post()
-  create(@Body({ schema: createCustomerSchema }) createCustomerDto: CreateCustomerDto){
-    return this.customerService.createCustomer(createCustomerDto)
+  @Implement(contract.customers)
+  customers() {
+    return {
+      list: implement(contract.customers.list).handler(() => this.customerService.getCustomers()),
+      find: implement(contract.customers.find).handler(async ({ input, errors }) => {
+        const customer = await this.customerService.getCustomerById(input.id);
+        if (!customer) throw errors.NOT_FOUND();
+        return customer;
+      }),
+      create: implement(contract.customers.create).handler(async ({ input, errors }) => {
+        const result = await this.customerService.createCustomer(input);
+        if (result.kind === 'duplicate') throw errors.CONFLICT();
+        return result.customer;
+      }),
+    };
   }
 }

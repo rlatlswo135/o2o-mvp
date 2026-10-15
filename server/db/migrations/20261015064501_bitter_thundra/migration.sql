@@ -1,0 +1,1 @@
+ALTER TABLE "customers" ADD CONSTRAINT "customers_phone_digits" CHECK ("phone" ~ '^[0-9]{8,15}$');

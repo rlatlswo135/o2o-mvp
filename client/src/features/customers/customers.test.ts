@@ -1,79 +1,42 @@
+import type { Customer } from "@o2o/shared/contracts";
+
+import { customerInputSchema } from "@o2o/shared/contracts";
+import { ORPCError } from "@orpc/client";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { z } from "zod";
 
 import { resolveTableState } from "@/shared/ui/data-table/data-table.tsx";
 
-import type { Customer, CustomerInput } from "./customers.schema.ts";
-
 import { customerQueries, registerCustomer } from "./customers.api.ts";
-import { customerInputSchema } from "./customers.schema.ts";
 
-// 경계는 서버와의 HTTP 계약 하나다. 그 안쪽(ky·zod·query 캐시·입력 확인)은 전부 실물로 돌린다.
+// 경계는 서버와의 HTTP 계약 하나다. 그 안쪽(oRPC 클라이언트·응답 확인·query 캐시·입력 확인)은 전부 실물로 돌린다.
 vi.hoisted(() => {
   vi.stubEnv("VITE_SERVER_URL", "https://api.example.test/");
 });
 
-type Fault = number | "network";
+const kim = { id: 1, name: "김서연", phone: "01000000001" };
+const lee = { id: 2, name: "이지우", phone: "01000000002" };
 
-/** 서버 계약(GET 목록·POST 등록·전화번호 중복 409)을 흉내 내는 메모리 서버. 목록은 최근 등록순이다. */
-function createFakeServer(seed: ReadonlyArray<Customer> = []) {
-  const rows = [...seed];
-  const requests: string[] = [];
-  let nextId = Math.max(0, ...seed.map((row) => row.id)) + 1;
-  let fault: Fault | null = null;
-  let listBody: unknown;
-  let gate: Promise<void> | null = null;
+/** 서버가 계약대로 돌려주는 응답. 오류는 oRPC가 계약의 오류를 실어 보내는 모양이다. */
+const json = (body: unknown, status = 200) => Response.json(body, { status });
+const contractError = (code: "NOT_FOUND" | "CONFLICT", status: number) =>
+  json({ defined: true, code, message: code }, status);
 
-  async function handle(request: Request): Promise<Response> {
-    requests.push(`${request.method} ${new URL(request.url).pathname}`);
-    if (fault === "network") throw new TypeError("Failed to fetch");
-    if (fault !== null) return Response.json({}, { status: fault });
+const unreachable = () => {
+  throw new TypeError("Failed to fetch");
+};
 
-    if (request.method === "GET") {
-      const body = listBody ?? rows;
-      // 응답은 요청 시점 기준이고, 붙잡아 두면 늦게 도착한다.
-      const held = gate;
-      gate = null;
-      if (held) await held;
-      return Response.json(body);
-    }
+// 요청은 보낸 순서대로 `mockImplementationOnce`로 응답을 정해 두고, 그 뒤 요청은 `mockImplementation`이 받는다.
+const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>();
 
-    const input = (await request.json()) as CustomerInput;
-    if (rows.some((row) => row.phone === input.phone)) return Response.json({}, { status: 409 });
-    const created = { id: nextId++, ...input };
-    rows.unshift(created);
-    return Response.json(created, { status: 201 });
-  }
+/** 보낸 요청을 `"GET /customers"`처럼 메서드와 경로로 본다. */
+const requests = () =>
+  fetchMock.mock.calls.map(([url, init]) => `${init.method} ${new URL(url).pathname}`);
 
-  return {
-    handle,
-    requests,
-    stored: () => rows.map(({ name, phone }) => ({ name, phone })),
-    fail: (next: Fault) => void (fault = next),
-    recover: () => void (fault = null),
-    /** 목록 응답 본문을 계약과 다른 값으로 바꾼다. */
-    serveList: (body: unknown) => void (listBody = body),
-    /** 다음 목록 요청의 응답을 release를 부를 때까지 붙잡는다. */
-    holdNextList: () => {
-      const { promise, resolve } = Promise.withResolvers<void>();
-      gate = promise;
-      return resolve;
-    },
-  };
-}
-
-const kim = { id: 1, name: "김서연", phone: "010-0000-0001" };
-const lee = { id: 2, name: "이지우", phone: "010-0000-0002" };
+const sentBody = (index: number) => JSON.parse(String(fetchMock.mock.calls[index]?.[1].body));
 
 let client: QueryClient;
-let server: ReturnType<typeof createFakeServer>;
 const unsubscribers: Array<() => void> = [];
-
-function startServer(seed?: ReadonlyArray<Customer>) {
-  server = createFakeServer(seed);
-  vi.stubGlobal("fetch", (request: Request) => server.handle(request));
-}
 
 /** 고객 화면이 목록을 열어 둔 상태. 화면이 보는 값은 목록 표(DataTable)가 그릴 상태다. */
 function openCustomerList() {
@@ -102,7 +65,8 @@ beforeEach(() => {
       mutations: { gcTime: Infinity },
     },
   });
-  startServer();
+  fetchMock.mockReset();
+  vi.stubGlobal("fetch", fetchMock);
 });
 
 afterEach(() => {
@@ -117,7 +81,7 @@ afterAll(() => {
 
 describe("고객 목록 조회", () => {
   it("응답 전에는 비어 있다고 단정하지 않고 응답이 오면 서버 순서 그대로 보여준다", async () => {
-    startServer([lee, kim]);
+    fetchMock.mockImplementation(async () => json([lee, kim]));
     const list = openCustomerList();
 
     expect(list.screen()).toEqual({ kind: "loading" });
@@ -128,27 +92,31 @@ describe("고객 목록 조회", () => {
   it.each([
     {
       situation: "고객이 없는 서버",
-      setup: () => {},
+      respond: async () => json([]),
       expected: { kind: "loaded", rows: [], refreshFailed: false },
     },
-    { situation: "서버 오류(500)", setup: () => server.fail(500), expected: { kind: "failed" } },
+    {
+      situation: "서버 오류(500)",
+      respond: async () => json({}, 500),
+      expected: { kind: "failed" },
+    },
     {
       situation: "서버에 닿지 않음",
-      setup: () => server.fail("network"),
+      respond: async () => unreachable(),
       expected: { kind: "failed" },
     },
     {
       situation: "id가 문자열인 응답",
-      setup: () => server.serveList([{ ...kim, id: "1" }]),
+      respond: async () => json([{ ...kim, id: "1" }]),
       expected: { kind: "failed" },
     },
     {
       situation: "배열이 아닌 응답",
-      setup: () => server.serveList({ customers: [kim] }),
+      respond: async () => json({ customers: [kim] }),
       expected: { kind: "failed" },
     },
-  ])("$situation: 화면 상태는 $expected.kind", async ({ setup, expected }) => {
-    setup();
+  ])("$situation: 화면 상태는 $expected.kind", async ({ respond, expected }) => {
+    fetchMock.mockImplementation(respond);
     const list = openCustomerList();
 
     await list.settled();
@@ -156,13 +124,13 @@ describe("고객 목록 조회", () => {
   });
 
   it("조회 실패 뒤 다시 시도하면 다시 불러오는 중을 거쳐 목록이 나온다", async () => {
-    startServer([kim]);
-    server.fail(500);
+    fetchMock
+      .mockImplementationOnce(async () => json({}, 500))
+      .mockImplementation(async () => json([kim]));
     const list = openCustomerList();
     await list.settled();
     expect(list.screen()).toEqual({ kind: "failed" });
 
-    server.recover();
     const reloading = list.reload();
     expect(list.screen()).toEqual({ kind: "loading" });
     await reloading;
@@ -170,16 +138,17 @@ describe("고객 목록 조회", () => {
   });
 
   it("다시 불러오기가 실패해도 보이던 목록을 유지하고 실패만 따로 알린다", async () => {
-    startServer([kim]);
+    fetchMock
+      .mockImplementationOnce(async () => json([kim]))
+      .mockImplementationOnce(async () => json({}, 500))
+      .mockImplementation(async () => json([kim]));
     const list = openCustomerList();
     await list.settled();
 
-    server.fail(500);
     await list.reload();
     expect(list.screen()).toEqual({ kind: "loaded", rows: [kim], refreshFailed: true });
 
     // 다시 시도하는 동안에는 실패 표시를 내리고, 성공하면 최신 목록으로 바뀐다.
-    server.recover();
     const reloading = list.reload();
     expect(list.screen()).toEqual(loaded([kim]));
     await reloading;
@@ -187,104 +156,139 @@ describe("고객 목록 조회", () => {
   });
 });
 
-describe("고객 등록 입력 확인", () => {
-  // 확인에 걸린 입력은 폼이 저장으로 넘기지 않으므로 서버에 닿지 않는다.
-  it.each([
-    {
-      case: "이름과 전화번호가 비어 있음",
-      input: { name: "   ", phone: "" },
-      errors: { name: ["고객 이름을 입력해주세요."], phone: ["전화번호를 입력해주세요."] },
-    },
-    {
-      case: "숫자 없이 공백·하이픈만 있는 전화번호",
-      input: { name: "김서연", phone: " - - " },
-      errors: { phone: ["전화번호를 입력해주세요."] },
-    },
-    ...["010-0000-100a", "+82 10 0000 1001", "010.0000.1001"].map((phone) => ({
-      case: `허용되지 않는 문자가 든 전화번호 ${phone}`,
-      input: { name: "김서연", phone },
-      errors: { phone: ["전화번호는 숫자, 공백, 하이픈(-)만 입력할 수 있어요."] },
-    })),
-  ])("$case: 항목마다 오류를 하나씩만 알린다", ({ input, errors }) => {
-    const { error } = customerInputSchema.safeParse(input);
-
-    expect(error && z.flattenError(error).fieldErrors).toEqual(errors);
-  });
-});
-
 describe("고객 등록", () => {
-  it("입력 앞뒤 공백을 지워 저장하고 새 고객을 목록 맨 위에 올린다", async () => {
-    startServer([kim]);
+  it("입력을 다듬어(이름 앞뒤 공백, 전화번호는 숫자만) 보내고 새 고객을 목록 맨 위에 올린다", async () => {
+    fetchMock
+      .mockImplementationOnce(async () => json([kim]))
+      .mockImplementationOnce(async () => json(lee, 201))
+      .mockImplementationOnce(async () => json([lee, kim]));
     const list = openCustomerList();
     await list.settled();
 
     const result = await register({ name: "  이지우 ", phone: " 010-0000-0002 " });
 
-    expect(result).toMatchObject({ kind: "created", customer: { name: "이지우" } });
-    expect(server.stored()).toEqual([
-      { name: "이지우", phone: "010-0000-0002" },
-      { name: kim.name, phone: kim.phone },
-    ]);
-    expect(list.screen()).toMatchObject({
-      kind: "loaded",
-      rows: [{ name: "이지우" }, { name: kim.name }],
-    });
+    expect(result).toEqual({ kind: "created", customer: lee });
+    expect(sentBody(1)).toEqual({ name: lee.name, phone: lee.phone });
+    expect(list.screen()).toEqual(loaded([lee, kim]));
     // 저장 뒤 서버 순서로 다시 맞춘다.
-    expect(server.requests).toEqual(["GET /customers", "POST /customers", "GET /customers"]);
+    expect(requests()).toEqual(["GET /customers", "POST /customers", "GET /customers"]);
   });
 
-  it("목록을 열지 않은 채 등록해도 서버에 저장된다", async () => {
+  it("목록을 열지 않은 채 등록해도 서버에 보낸다", async () => {
+    fetchMock.mockImplementationOnce(async () => json(kim, 201));
+
     expect(await register({ name: "김서연", phone: "010-0000-0001" })).toMatchObject({
       kind: "created",
     });
-    expect(server.stored()).toEqual([{ name: "김서연", phone: "010-0000-0001" }]);
+    expect(sentBody(0)).toEqual({ name: kim.name, phone: kim.phone });
   });
 
   it("이미 있는 전화번호는 중복으로 알리고 목록은 그대로 둔다", async () => {
-    startServer([kim]);
+    fetchMock
+      .mockImplementationOnce(async () => json([kim]))
+      .mockImplementationOnce(async () => contractError("CONFLICT", 409));
     const list = openCustomerList();
     await list.settled();
 
     expect(await register({ name: "다른 사람", phone: kim.phone })).toEqual({ kind: "duplicate" });
-    expect(server.stored()).toEqual([{ name: kim.name, phone: kim.phone }]);
+    expect(list.screen()).toEqual(loaded([kim]));
+    expect(requests()).toEqual(["GET /customers", "POST /customers"]);
+  });
+
+  it("서버가 입력을 거절하면(400) 실패로 알린다", async () => {
+    // 폼 확인을 거치지 않은 값이 와도 서버가 같은 계약으로 다시 확인한다.
+    fetchMock.mockImplementationOnce(async () =>
+      json({ defined: false, code: "BAD_REQUEST", message: "Input validation failed" }, 400),
+    );
+
+    expect(await registerCustomer(client, { name: "김서연", phone: "12" })).toEqual({
+      kind: "failed",
+    });
+  });
+
+  it.each([
+    { situation: "서버 오류(500)", respond: async () => json({}, 500) },
+    { situation: "서버에 닿지 않음", respond: async () => unreachable() },
+  ])("저장 실패($situation)는 실패로 알리고 보이던 목록을 그대로 둔다", async ({ respond }) => {
+    fetchMock.mockImplementationOnce(async () => json([kim])).mockImplementationOnce(respond);
+    const list = openCustomerList();
+    await list.settled();
+
+    expect(await register({ name: "이지우", phone: lee.phone })).toEqual({ kind: "failed" });
     expect(list.screen()).toEqual(loaded([kim]));
   });
 
-  it.each([500, "network" as const])(
-    "저장 실패(%s)는 실패로 알리고 보이던 목록을 그대로 둔다",
-    async (fault) => {
-      startServer([kim]);
-      const list = openCustomerList();
-      await list.settled();
-      server.fail(fault);
-
-      expect(await register({ name: "이지우", phone: lee.phone })).toEqual({ kind: "failed" });
-      expect(list.screen()).toEqual(loaded([kim]));
-    },
-  );
-
   it("실패한 입력은 고친 뒤 다시 등록할 수 있다", async () => {
-    server.fail(500);
-    expect(await register({ name: "김서연", phone: kim.phone })).toEqual({ kind: "failed" });
+    fetchMock
+      .mockImplementationOnce(async () => json({}, 500))
+      .mockImplementationOnce(async () => json(kim, 201));
 
-    server.recover();
+    expect(await register({ name: "김서연", phone: kim.phone })).toEqual({ kind: "failed" });
     expect(await register({ name: "김서연", phone: kim.phone })).toMatchObject({ kind: "created" });
-    expect(server.stored()).toEqual([{ name: kim.name, phone: kim.phone }]);
   });
 
   it("등록하는 사이 늦게 도착한 이전 조회 응답이 새 고객을 지우지 못한다", async () => {
-    startServer([kim]);
-    const releaseOldList = server.holdNextList();
+    let releaseOldList!: () => void;
+    const oldListHeld = new Promise<void>((resolve) => (releaseOldList = resolve));
+    fetchMock
+      .mockImplementationOnce(async () => {
+        await oldListHeld;
+        return json([kim]);
+      })
+      .mockImplementationOnce(async () => json(lee, 201))
+      .mockImplementation(async () => json([lee, kim]));
     const list = openCustomerList();
-    await vi.waitFor(() => expect(server.requests).toEqual(["GET /customers"]));
+    await vi.waitFor(() => expect(requests()).toEqual(["GET /customers"]));
 
     await register({ name: "이지우", phone: lee.phone });
-    const expected = { kind: "loaded", rows: [{ name: "이지우" }, { name: kim.name }] };
-    expect(list.screen()).toMatchObject(expected);
+    expect(list.screen()).toEqual(loaded([lee, kim]));
 
     // 처음 요청한 조회(고객이 김서연뿐이던 시점)의 응답이 이제야 도착한다.
     releaseOldList();
     await list.settled();
-    expect(list.screen()).toMatchObject(expected);
+    expect(list.screen()).toEqual(loaded([lee, kim]));
+  });
+});
+
+describe("고객 한 명 조회", () => {
+  /** 고객 상세를 열어 둔 상태. */
+  function openCustomerDetail(id: number) {
+    const observer = new QueryObserver(client, customerQueries.detail(id));
+    unsubscribers.push(observer.subscribe(() => {}));
+    return {
+      result: () => observer.getCurrentResult(),
+      settled: () => vi.waitFor(() => expect(observer.getCurrentResult().isFetching).toBe(false)),
+    };
+  }
+
+  it("id로 고객 한 명을 불러온다", async () => {
+    fetchMock.mockImplementation(async () => json(kim));
+    const detail = openCustomerDetail(kim.id);
+
+    await detail.settled();
+    expect(detail.result().data).toEqual(kim);
+    expect(requests()).toEqual(["GET /customers/1"]);
+  });
+
+  it("없는 고객이면 NOT_FOUND로 실패해 다른 실패와 구분할 수 있다", async () => {
+    fetchMock.mockImplementation(async () => contractError("NOT_FOUND", 404));
+    const detail = openCustomerDetail(99);
+
+    await detail.settled();
+    const { error } = detail.result();
+    expect(error instanceof ORPCError && error.code).toBe("NOT_FOUND");
+  });
+
+  it.each([
+    { situation: "서버 오류(500)", respond: async () => json({}, 500) },
+    { situation: "서버에 닿지 않음", respond: async () => unreachable() },
+  ])("조회 실패($situation)는 NOT_FOUND가 아닌 실패다", async ({ respond }) => {
+    fetchMock.mockImplementation(respond);
+    const detail = openCustomerDetail(kim.id);
+
+    await detail.settled();
+    const { status, error } = detail.result();
+    expect(status).toBe("error");
+    expect(error instanceof ORPCError && error.code).not.toBe("NOT_FOUND");
   });
 });
