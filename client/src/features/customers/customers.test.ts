@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vite-
 
 import { resolveTableState } from "@/shared/ui/data-table/data-table.tsx";
 
-import { customerQueries, registerCustomer } from "./customers.api.ts";
+import { customerQueries, deleteCustomer, registerCustomer } from "./customers.api.ts";
 
 // 경계는 서버와의 HTTP 계약 하나다. 그 안쪽(oRPC 클라이언트·응답 확인·query 캐시·입력 확인)은 전부 실물로 돌린다.
 vi.hoisted(() => {
@@ -247,6 +247,59 @@ describe("고객 등록", () => {
     releaseOldList();
     await list.settled();
     expect(list.screen()).toEqual(loaded([lee, kim]));
+  });
+});
+
+describe("고객 삭제", () => {
+  /** 삭제 성공은 본문 없는 204다. */
+  const noContent = () => new Response(null, { status: 204 });
+
+  it("지운 고객을 목록에서 내리고 서버 순서로 다시 맞춘다", async () => {
+    fetchMock
+      .mockImplementationOnce(async () => json([lee, kim]))
+      .mockImplementationOnce(async () => noContent())
+      .mockImplementationOnce(async () => json([kim]));
+    const list = openCustomerList();
+    await list.settled();
+
+    expect(await deleteCustomer(client, lee.id)).toEqual({ kind: "deleted" });
+    expect(list.screen()).toEqual(loaded([kim]));
+    expect(requests()).toEqual(["GET /customers", "DELETE /customers/2", "GET /customers"]);
+  });
+
+  it("지운 고객의 상세 캐시도 지운다", async () => {
+    fetchMock
+      .mockImplementationOnce(async () => json(lee))
+      .mockImplementationOnce(async () => noContent());
+    await client.fetchQuery(customerQueries.detail(lee.id));
+
+    await deleteCustomer(client, lee.id);
+    expect(client.getQueryData(customerQueries.detail(lee.id).queryKey)).toBeUndefined();
+  });
+
+  it("이미 없는 고객이면 NOT_FOUND로 알리고 목록에서도 내린다", async () => {
+    fetchMock
+      .mockImplementationOnce(async () => json([lee, kim]))
+      .mockImplementationOnce(async () => contractError("NOT_FOUND", 404))
+      .mockImplementationOnce(async () => json([kim]));
+    const list = openCustomerList();
+    await list.settled();
+
+    expect(await deleteCustomer(client, lee.id)).toEqual({ kind: "not_found" });
+    expect(list.screen()).toEqual(loaded([kim]));
+  });
+
+  it.each([
+    { situation: "서버 오류(500)", respond: async () => json({}, 500) },
+    { situation: "서버에 닿지 않음", respond: async () => unreachable() },
+  ])("삭제 실패($situation)는 실패로 알리고 보이던 목록을 그대로 둔다", async ({ respond }) => {
+    fetchMock.mockImplementationOnce(async () => json([lee, kim])).mockImplementationOnce(respond);
+    const list = openCustomerList();
+    await list.settled();
+
+    expect(await deleteCustomer(client, lee.id)).toEqual({ kind: "failed" });
+    expect(list.screen()).toEqual(loaded([lee, kim]));
+    expect(requests()).toEqual(["GET /customers", "DELETE /customers/2"]);
   });
 });
 

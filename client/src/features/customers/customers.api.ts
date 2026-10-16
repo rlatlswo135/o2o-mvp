@@ -18,7 +18,7 @@ export const customerQueries = {
   detail: (id: number) =>
     queryOptions({
       queryKey: [...customerQueries.all(), "detail", id],
-      queryFn: ({ signal }) => api.customers.find({ id }, { signal }),
+      queryFn: ({ signal }) => api.customers.get({ id }, { signal }),
     }),
 };
 
@@ -51,4 +51,26 @@ export async function registerCustomer(
   ]);
   await queryClient.invalidateQueries({ queryKey });
   return { kind: "created", customer };
+}
+
+export type DeleteResult = { kind: "deleted" } | { kind: "not_found" } | { kind: "failed" };
+
+/**
+ * 고객 삭제 한 건. 삭제 → 목록 반영까지 하고 결과만 돌려준다.
+ * 이미 없는 고객(NOT_FOUND)도 서버에 없기는 마찬가지라 목록에서 내린다. 그 밖의 실패는 캐시를 그대로 둔다.
+ */
+export async function deleteCustomer(queryClient: QueryClient, id: number): Promise<DeleteResult> {
+  const { error } = await safe(api.customers.delete({ id }));
+  const notFound = isDefinedError(error) && error.code === "NOT_FOUND";
+  if (error && !notFound) return { kind: "failed" };
+
+  // 진행 중이던 이전 조회가 지운 고객을 되살리지 못하게 취소한 뒤 반영하고 서버 순서로 다시 맞춘다.
+  const { queryKey } = customerQueries.list();
+  await queryClient.cancelQueries({ queryKey });
+  queryClient.setQueryData(queryKey, (current) =>
+    current?.filter((customer) => customer.id !== id),
+  );
+  queryClient.removeQueries({ queryKey: customerQueries.detail(id).queryKey });
+  await queryClient.invalidateQueries({ queryKey });
+  return notFound ? { kind: "not_found" } : { kind: "deleted" };
 }

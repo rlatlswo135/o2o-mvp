@@ -1,16 +1,14 @@
 import { z } from "zod";
 
-// 응답 스키마에는 transform, pipe, default를 쓰지 않는다.
-// 서버 출력 검증과 클라이언트 응답 검증이 같은 값을 그대로 통과시켜야 한다.
+const PHONE_SEPARATORS = /[\s-]/g;
+
 export const customerSchema = z.object({
   id: z.number().int().positive(),
   name: z.string(),
   phone: z.string(),
 });
 
-export type Customer = z.output<typeof customerSchema>;
-
-const PHONE_SEPARATORS = /[\s-]/g;
+export const customerIdSchema = z.object({id:z.coerce.number().int().positive().max(2_147_483_647)});
 
 // 클라이언트가 parse한 값을 서버가 다시 parse한다. transform은 두 번 적용해도 결과가 같아야 한다.
 export const customerInputSchema = z.object({
@@ -27,4 +25,8 @@ export const customerInputSchema = z.object({
     .pipe(z.string().regex(/^\d{8,15}$/, "전화번호는 8~15자리 숫자로 입력해주세요.")),
 });
 
+export const customerUpdateSchema = customerInputSchema.extend(customerIdSchema.shape)
+
+export type Customer = z.output<typeof customerSchema>;
 export type CustomerInput = z.output<typeof customerInputSchema>;
+export type CustomerUpdate = z.output<typeof customerUpdateSchema>

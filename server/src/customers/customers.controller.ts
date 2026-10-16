@@ -15,13 +15,23 @@ export class CustomersController {
   customers() {
     return {
       list: implement(contract.customers.list).handler(() => this.customerService.getCustomers()),
-      find: implement(contract.customers.find).handler(async ({ input, errors }) => {
+      get: implement(contract.customers.get).handler(async ({ input, errors }) => {
         const customer = await this.customerService.getCustomerById(input.id);
         if (!customer) throw errors.NOT_FOUND();
         return customer;
       }),
       create: implement(contract.customers.create).handler(async ({ input, errors }) => {
         const result = await this.customerService.createCustomer(input);
+        if (result.kind === 'duplicate') throw errors.CONFLICT();
+        return result.customer;
+      }),
+      delete: implement(contract.customers.delete).handler(async ({ input, errors }) => {
+        const result = await this.customerService.deleteCustomer(input.id);
+        if (result.kind === 'not_found') throw errors.NOT_FOUND();
+      }),
+      update: implement(contract.customers.update).handler(async ({ input, errors }) => {
+        const result = await this.customerService.updateCustomer(input);
+        if (result.kind === 'not_found') throw errors.NOT_FOUND();
         if (result.kind === 'duplicate') throw errors.CONFLICT();
         return result.customer;
       }),
