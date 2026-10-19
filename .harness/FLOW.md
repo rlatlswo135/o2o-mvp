@@ -1,181 +1,186 @@
-# Node 협업 흐름
+# 하네스 흐름
 
-planner=Pi, reviewer=Pi, executor=Claude Code. 프로젝트 루트에서 실행한다.
-런타임은 `node .harness/bin/c2h.mjs`만 사용한다. 모델·thinking·effort는 사용자가 관리한다.
-setup은 역할이 로드된 CLI를 열지만 제품 작업을 승인하지 않는다. 한 번에 활성 스토리 하나만 처리한다.
-Git·package.json·pnpm-lock.yaml은 하네스 필수 조건이 아니다. 없다는 이유로 Git 초기화·패키지 설치를 하지 않는다.
-새 리뷰는 파일 경로·권한·내용·링크 대상을 해시로 고정하며 링크는 따라가지 않는다.
-루트 `.harness/`, 각 경로의 `.git`, `node_modules` 디렉터리·링크는 제외한다. `.gitignore`는 해석하지 않아 나머지 생성물도 검사한다.
-리뷰 중 생성물도 변경하지 않는다. 해시는 이전 코드의 백업이나 diff가 아니다. 구버전 Git 리뷰만 원래 Git 기준으로 검증한다.
+선택·인계·재개 절차의 정본이다. 역할 문서(`.harness/roles/*.md`)는 책임과 검토 기준만 둔다.
 
-## 명령과 승인
+## 원칙
 
-| 입력창 | 명령 | 행동 |
-| --- | --- | --- |
-| Pi planner | `/plan [요구사항]` | 계획 후 handoff / refine / discuss |
-| Claude executor | `/executor` | 상태부터 복원. 승인된 인계는 중복 선택 없이 구현 |
-| Claude executor | `/harness-review [ID]` | 완료된 구현의 리뷰 인계 |
-| Pi reviewer | `/reviewer` | 요청된 리뷰 시작·재개. 수정 후 재리뷰는 executor에서 명시적으로 선택 |
-| Pi planner | `/planner` | 같은 작업 세션의 완료 인계 재개. 다음 스토리 계획만 시작 |
-| Pi planner/reviewer | `/harness-new [역할]` | 기록을 보존하고 새 세션에서 계획/리뷰 재개 |
-| Claude executor | `/clear` → `/executor` | 저장·대기 후 새 컨텍스트에서 승인된 작업 재개 |
-| Claude executor | `/accept` | 수정안 다중 선택 후 선택한 항목만 수정 |
-| Claude executor | `/feedback` | 항목 선택·논의. 수정 승인 아님 |
+- planner·reviewer·designer·qa는 Pi, executor는 Claude Code다. 기본은 planner/executor/reviewer이고 designer/qa는 선택 역할이다. 소스 수정자는 executor 한 명이다.
+- 사용자는 각 역할 pane에 자연어로 직접 요청한다. 하네스 명령은 Pi의 `/harness`(현재 작업 재전달) 하나뿐이다.
+- 런타임은 프로젝트 루트의 `node .harness/bin/c2h.mjs`다. 출력은 JSON, 진단은 stderr다. 모델·thinking·effort는 사용자가 관리한다.
+- 사용자에게 하는 설명·브리핑·선택창·완료 안내는 한국어다. 영어 도구 출력·알림·인계 본문은 언어 변경 요청이 아니다. 코드·명령·원문 인용은 그대로 둔다.
+- 한 번에 활성 스토리 하나다. setup·역할 로드·"작업 진행"만으로 미승인 구현을 시작하지 않는다.
+- 사람의 의견은 **계획을 만드는 데**에만 들어간다: 스토리 보강, `c2h_plan_next` 인계 선택, 디자인 방향 선택, QA 가치 인터뷰. 그 뒤 디자이너↔플래너 왕복 → 실행자 인계 → 구현 → 종합 검토 → 계획 대비 반영 → 완료 → 결과 정리는 자동이며 막힐 때만 묻는다.
+- 선택은 실제 선택 UI(Pi 확장 선택창, Claude AskUserQuestion)로 묻고 텍스트 질문으로 대체하지 않는다. 사용자는 해당 역할의 원본 pane에서 답한다. 보드는 `선택 필요`만 표시하고 대신 답하지 않는다. 취소·빈 응답·타임아웃·UI 없음은 승인이 아니다. 선택 UI가 없으면 Pi 설치·신뢰·`/reload`를 확인하고 멈춘다.
+- 커밋·푸시·범위 확대·계획 밖 의존성·파괴적 작업은 별도 승인이다. Git·package.json은 필수가 아니며 없다고 초기화·설치하지 않는다.
+- 같은 OS 계정의 신뢰된 세션용이다. 역할 이름과 `--approved`는 인증이 아니라 사용자의 명시적 승인 주장이다. 메시지에 비밀을 넣지 않는다.
 
-`/plan`은 Pi 프롬프트다. `/reviewer`는 `.harness/commands/reviewer.md`를 읽는 Pi 확장 명령이다.
-Claude 내장 `/review`는 별개다. 일반 재개 요청은 새 구현·수정·커밋·푸시 승인이 아니다.
-취소·빈 응답·타임아웃·자동 계속은 승인 아님. 선택 UI가 없으면 멈추고 설치·신뢰·reload를 확인한다.
+## 재개
 
-## 계획 완료 선택
+1. 프로젝트 지침(AGENTS.md/CLAUDE.md)과 현재 역할을 확인한다. 다른 역할로 조용히 전환하지 않는다.
+2. `node .harness/bin/c2h.mjs resume ROLE`이 현재 단계의 정본이다(읽기 전용). 현재 story.md·관련 계약과 이 문서의 해당 절차만 읽는다. 완료 스토리·과거 대화·index 전체는 읽지 않는다. 미처리 메시지는 `inbox ROLE`, 충돌 조사는 `status`로 본다.
+3. 대상 없음·파일 누락·역할/승인/phase 충돌·envelope 유실·소스 drift면 멈춘다. 승인이나 요청을 추측해 만들지 않는다. `reverification_required`면 이전 검증을 새 소스에 쓰지 않는다. `busy`면 잠시 뒤 다시 확인한다. 오류가 stale lock이면 안내대로 `unlock --approved` 뒤 다시 확인하고, 승인된 파일 변경이면 `restore-approved STORY --approved`로 승인본을 되돌린다(**복구**).
 
-1. planner는 스토리 범위·제외 범위·완료 조건·선행 조건·남은 결정을 저장한다.
-   `node .harness/bin/c2h.mjs checkpoint STORY planning --note '계획 준비'`로 기록하고 Markdown을 맞춘다.
-2. 준비된 스토리 ID를 `story` 인수로 **`c2h_plan_next`**에 전달한다.
-   UI는 **실행자에게 넘기기 (`handoff`) / 스토리 검토·보강하기 (`refine`) / 이 내용 논의하기 (`discuss`)**를 묻는다.
-3. **handoff 선택 자체가 표시된 스토리 revision의 구현 승인**이다. 확장이 준비 상태를 재확인하고
-   `node .harness/bin/c2h.mjs handoff STORY --approved`를 실행한다.
-   이 명령은 스토리 hash와 승인 기록을 묶은 `implementation_request`를 만든다. planner가 send/handoff를 다시 실행하지 않는다.
-   같은 pending 승인은 재사용하며 승인 후 범위 변경은 기존 인계를 해결하기 전 진행하지 않는다.
-4. refine은 문서 보강 후 다시 UI, discuss는 대화만 한다. 둘 다 인계하지 않는다.
-   승인된 스토리 파일을 임의 수정하지 않는다. 승인 기록과 정확한 revision이 어긋나면 중단한다.
+| action | 다음 행동 |
+| --- | --- |
+| plan | planner: 계획 보강 후 `c2h_plan_next` |
+| select_story | executor: 준비된 미승인 스토리를 이름·범위·완료 조건과 함께 AskUserQuestion 단일 선택으로 제시. 선택이 구현 승인이다 |
+| implement | executor: 승인된 인계·진행 중 범위만 구현 |
+| implementation_choices | `auto: quality` — 종합 검토 요청 |
+| brief | 회신 검증·브리핑·ack 후 `auto: apply` |
+| review_decision | `auto: apply` — 계획 대비 반영, 반영할 것이 없으면 완료 |
+| completion_choices | `auto: recheck`(검증된 수정의 재리뷰), `apply`(재리뷰 회신 반영) 또는 `done`. `auto` 대신 `auto_stopped`면 사용자에게 묻는다 |
+| review / review_choices | reviewer: 리뷰 작성 / 보고서 전달. executor는 소스 수정 없이 대기 |
+| plan_next | planner: **완료 정리** |
+| assist | designer/qa: 요청 수행 |
+| wait | 대기. 다른 스토리를 시작하지 않는다 |
+| blocked / done | 원인·결과만 안내. 다음 스토리를 임의로 시작하지 않는다 |
 
-## executor 시작·재개
+- 새 스토리 인계는 같은 세션의 **새 작업 경계**로 받는다. resume·inbox·스토리 파일만 기준으로 삼고 이전 스토리의 범위·승인·판단을 잇지 않는다. 세션 교체·tmux 키 주입은 하지 않는다.
+- 컨텍스트가 찼을 때만 사용자가 새로 시작한다: Claude는 `/clear` 뒤 "이어서 진행", Pi는 `/new` 뒤 `/harness`.
+- Pi 확장은 유휴·입력 없음일 때 inbox의 검증된 요청을 자동 전달한다. 전달이 안 됐으면 그 pane에서 `/harness`(designer/qa는 `/harness 요청`도 가능).
+- Claude executor는 resume 확인 후 `node .harness/bin/c2h.mjs listen executor --timeout 0`을 네이티브 Bash `run_in_background: true`로 **하나만** 연다. 셸 `&`·추가 에이전트·반복 폴링은 쓰지 않는다. 알림이 오면 출력 읽기 → resume 재검증 → 착수·브리핑 → 그 메시지만 `ack executor ID` → waiter 하나 재무장. 새 세션에서는 옛 waiter가 살아 있다고 가정하지 않는다. 권한·알림 실패는 숨기지 않는다.
 
-먼저 `node .harness/bin/c2h.mjs resume executor`와 실제 문서를 대조한다.
-`.harness/active.json`과 생성된 checkpoint.md는 현재 phase·승인, story.md는 승인 시 동결한 범위, CURRENT.md는 포인터다.
-승인 후 story.md는 수정하지 않는다. 상태·증거·게이트 결과는 implementation.md·review-brief.md에 기록한다. 충돌하면 멈춘다.
+## 스토리 폴더
 
-- `implement`: 승인된 인계 또는 진행 중 범위만 구현한다. planner 승인 인계에 두 번째 선택을 요구하지 않는다.
-- `select_story`: 준비된 미승인 스토리의 이름·범위·완료 조건을 AskUserQuestion 단일 선택으로 제시한다.
-  선택이 구현 승인임을 밝히고, 선택 후 상태·revision을 재검증한다. 승인 근거를 저장한 뒤
-  `node .harness/bin/c2h.mjs checkpoint STORY implementing --approved --note '선택한 범위 승인'`을 실행한다.
-- `implementation_choices`: 첫 구현 완료. 재구현하지 않고 아래 실행 완료 선택으로 간다.
-- `completion_choices`: 리뷰 반영 이후다. 아래 **사용자 완료 선택** 3개를 연다.
-- `wait`, `review`, `review_choices`: 소스 수정 없이 대기·해당 역할 안내만 한다.
-- `brief`: 결과 검증·브리핑·ack 후 resume을 다시 확인한다. 첫 리뷰는 `review_decision`, 재리뷰는 `completion_choices`로 분기한다.
-- `review_decision`: 첫 리뷰다. 아래 **결과 브리핑 후 선택** UI를 연다. 개별 수정안 승인 전 소스 수정 금지.
-- `plan_next`: planner만 완료 인계를 검증하고 아래 **완료 → 다음 계획**을 수행한다. 구현 승인은 아님.
-- `blocked`, `done`: 원인·기록만 안내한다. executor가 다음 스토리를 임의 구현하지 않는다.
+`.harness/stories/SNNN/`에 사람이 읽는 문서는 최상위, 런타임·역할 기록은 `records/`에 둔다. 버전 파일(design-2.md)·별도 수락 파일은 만들지 않는다.
 
-Claude는 **시작 시 resume 확인 후**, 살아 있는 작업이 없으면
-`node .harness/bin/c2h.mjs listen executor --timeout 0`을 **네이티브 Bash `run_in_background: true`로 하나만** 연다.
-셸 `&`, tmux send-keys, 추가 에이전트·모델 API, 반복 모델 폴링은 쓰지 않는다.
-완료 알림은 TaskOutput/Read로 읽고 resume으로 재검증한다. `implementation_request`는 승인·revision을 확인해
-수락 기록 후 해당 메시지만 ack한다. 이전 스토리 대화가 남아 있으면 ack·구현 전에 사용자에게 `/clear` → `/executor`를 안내하고 기다린다. `review_result`는 같은 스토리에서 브리핑 저장 후 ack한다.
-`node .harness/bin/c2h.mjs ack executor MESSAGE_ID` 후 기존 waiter 종료를 확인하고 하나를 다시 연다.
-세션 재시작 시 이전 background job 생존을 가정하지 말고 resume 후 새 waiter를 만든다.
-권한 거부·잘못된 메시지는 숨기거나 무한 재시도하지 않는다.
+- 최상위: `story.md`(템플릿 `.harness/STORY.md`), `design.md`·`preview.html`, `implementation.md`, `qa-contract.json`·`qa-values.json`·`acceptance/`, 필요하면 `planning.md`·`impact.md`
+- `records/`: `checkpoint.md`(런타임 생성, 직접 편집 금지), `review-N.md`·`design-review-N.md`·`qa-N.md`(전송 후 불변), QA 실행 증거, 종합 검토 기록, `result-draft.md`
+- 승인 때 승인된 story·design·preview·QA 파일의 사본이 `records/approved/`에 저장된다(`restore-approved`의 원본).
+- 완료 후에는 `result.md` 하나만 남는다(**완료 정리**).
+- `.harness/stories/index.md`는 스토리당 한 줄(이름·링크·의존성·완료 여부)이다. phase·승인·이력을 복제하지 않는다.
+- 상태 정본은 `.harness/active.json`과 `records/checkpoint.md`이며 `checkpoint STORY PHASE --note '근거'`로만 바꾼다. 승인 후 story.md는 동결한다. 진행·검증·반영 판단은 implementation.md에 쓴다.
+- 하네스 산출물은 `.harness/` 아래에 둔다. 외부 스킬의 `specs/*`·공용 LATEST 경로는 쓰지 않는다.
 
-## 실행 완료 선택
+| phase | 허용 행동 |
+| --- | --- |
+| planning | 계획 보강·선택 |
+| implementing | 승인된 범위 구현·검증 |
+| implementation_done | 첫 구현이면 종합 검토 요청, 반영 뒤면 수정 재리뷰 또는 완료 |
+| reviewing / review_ready | 리뷰 중. 소스 동결 |
+| review_decision | 계획 대비 자동 반영 |
+| fixing | 기록한 지적만 수정·검증 |
+| blocked | 원인·필요한 결정 안내 |
+| done | 완료. planner가 결과 정리 |
 
-executor는 필요한 테스트·빌드·브라우저 검증을 수행하고 implementation.md에 변경 파일·고정 기준·
-완료 조건별 명령/실제 결과·미실행 항목을 기록한다. `implementation_done` checkpoint와 Markdown을 맞춘다.
-첫 구현의 `implementation_choices`일 때만 Claude **AskUserQuestion**, `multiSelect: false`로 다음을 묻는다.
-리뷰 반영 후 `completion_choices`는 아래 **사용자 완료 선택**으로 간다. `/accept` 수정 후 이 메뉴를 반복하지 않는다.
+## 계획
 
-- **리뷰어에게 넘기기 (`review`)**: `.claude/skills/harness-review/SKILL.md`를 읽고 같은 세션에서 인계한다.
-  명령 재입력 요구 없음. `node .harness/bin/c2h.mjs review STORY`의 JSON에서 요청 ID를 보존한다.
-  기존 pending 요청은 재사용하고, 성공 여부 불명이면 status/resume으로 확인한다. 소스를 동결한다.
-- **보강하기 (`refine`)**: 내용을 확인하고 기존 승인 범위만 보강·검증 후 다시 선택한다.
-  원래 구현이면 `checkpoint STORY implementing --note '승인 범위 보강'`, 승인된 수정안의 보강이면
-  `checkpoint STORY fixing --note '기존 승인된 지적 ID와 보강 범위'`부터 기록한다. 새 승인을 임의 추가하지 않는다.
-  미선택 리뷰 수정안·범위 확대·새 의존성을 자동 승인하지 않는다.
-- **이 내용 논의하기 (`discuss`)**: 대화만 한다. 소스 수정·리뷰 요청 없음.
+1. planner는 사용자와 대화하며 작은 수직 스토리로 정리한다. story.md에 사용자 가치·범위·제외 범위·완료 조건·의존성·남은 결정·검증 계획을 쓴다. 대상이 불명확하거나 사용자만 정할 수 있는 결정(제품 방향·우선순위·범위)은 묻는다.
+2. 수동 확인은 기본적으로 executor가 브라우저로 대신한다. 자동화로 대신할 수 없고 사용자가 원하는 항목만 '사람 확인 필수'로 적는다.
+3. `checkpoint STORY planning --note '계획 준비'`로 저장하고 승인할 범위를 보여준 뒤 **`c2h_plan_next(story)`**를 호출한다(story는 ID만). 호출을 빠뜨려도 확장이 새 planning checkpoint를 보면 같은 선택창을 연다.
+4. 선택지는 살아 있는 역할만 표시된다.
+   - **실행자에게 넘기기**: 표시된 스토리 revision의 구현 승인이다. 확장이 story·design·QA hash를 고정해 handoff를 저장한다.
+   - **디자이너에게 넘기기**: 사용자가 방향을 고른 뒤 확정될 설계의 구현 승인까지 포함한다. 이후 왕복·인계는 자동이다.
+   - **QA 검증 계약 만들기**: 계약이 준비되면 다시 `c2h_plan_next`. 계약을 만들 거면 디자이너 인계보다 먼저 고른다.
+   - **보강**·**논의**: 인계하지 않는다.
+5. 승인 후 범위가 바뀌면 기존 인계를 정리하기 전에는 진행하지 않는다.
 
-직접 `/harness-review`도 명시적 리뷰 인계다. 별도 wait를 중복 띄우지 않고 기존 executor listener를 유지한다.
+## 디자인
 
-## 리뷰 초안 → 선택 → 회신
+- 화면이 있는 스토리는 기능이 단순해도 시각 설계를 생략하지 않는다.
+- designer는 story.md·기존 디자인 시스템을 읽고 추천 방향 2~3개로 `c2h_design_direction`을 호출한다. **디자인에서 사용자가 직접 정하는 유일한 단계다.**
+- 고른 방향으로 `design.md`(구체적 토큰·상태·구현 안내·남은 결정)와 의존성 없는 로컬 `preview.html`(로컬 mock만) 한 벌을 만든다. 고칠 때는 같은 파일을 갱신한다.
+- `c2h_design_next(story, design, preview, needsPlanning)`: false면 story·design·preview를 고정해 executor에게 자동 인계하고, true면 planner에게 요구 재검토를 보낸다. true는 스토리 범위·완료 조건이 바뀌어야 할 때만 쓴다. 정해진 동작 안의 상호작용 세부는 design.md에 추천안을 적고 false로 둔다.
+- 다음 역할이 없거나 QA 계약 준비 중이거나 왕복이 3회를 넘으면 자동 인계 대신 선택창이 열린다.
+- executor는 고정된 design·preview를 실제로 구현하며 "참고용"으로 취급하지 않는다.
 
-Pi 확장은 세션 유휴·대기 입력 없음·작성 중 입력 없음일 때 durable 요청을 전달한다.
-명시적 `/reviewer`는 알림 없이도 현재 작업을 시작·재개한다. resume reviewer를 확인하고 pending 요청을 재사용한다.
-첫 구현이 완료됐고 resume이 `review`이면 `node .harness/bin/c2h.mjs review STORY`로 요청을 만든다.
-리뷰 반영 후에는 executor의 사용자 완료 선택에서 **추가 리뷰 요청**을 고를 때만 재리뷰한다. reviewer가 먼저 요청을 만들지 않는다.
-구현이 없거나 envelope가 유실된 복구 상태면 멈춘다. 유실을 신규 요청으로 덮지 않는다.
+## 디자인 ↔ 플래너 왕복
 
-1. reviewer는 요청·승인 범위·implementation.md·변경 파일을 읽고 위험에 필요한 직접 호출부·타입·테스트만 확인한다.
-   Git diff는 있을 때만 참고한다. Git이 없으면 변경 설명·실제 코드를 대조하고 비교 근거가 없으면 검토 한계를 기록한다.
-2. 필요하면 **작고 대상이 명확한 비변경 unit/repro 확인**만 허용한다. 소스·기준·생성물을 바꾸지 않는다.
-   E2E·브라우저·개발 서버·전체 suite·종합 QA는 금지한다. 넓은 검증은 executor에게 요청한다.
-3. `review-N.md` 초안에 요청 ID·기준·검토 범위·지적 ID·심각도·파일:라인·실패 조건·최소 수정안·불확실성을 쓴다.
-   실행자 증거 인용과 직접 확인을 구분한다. 새 QA 보고서는 요구하지 않는다.
-4. 초안 저장 후 `node .harness/bin/c2h.mjs checkpoint STORY review_ready --note '리뷰 초안 저장'`을 실행하고 문서를 맞춘다.
-5. **`c2h_review_next`에 `requestId`와 보고서 경로를 전달**한다.
-   UI는 **실행자에게 보내기 (`send`) / 이 내용 논의하기 (`discuss`)**를 묻는다.
-   **send 선택 때만** 확장이 `node .harness/bin/c2h.mjs reply REQUEST_ID --review PATH`를 실행한다.
-   discuss는 미전송 초안 수정·논의 후 다시 선택한다. 취소하면 초안·review_ready를 유지한다.
-6. 지적이 없어도 자동 reply 금지. sent 보고서는 불변이며 후속 판단은 별도 기록한다.
-   review_request를 미리 ack하지 않는다. reply가 회신 저장 후 요청을 보관한다.
+1. designer는 범위를 바꿔야 하는 질문을 design.md '남은 결정'에 적는다. 사용자 요청은 `사용자 요청:` 뒤에 원문 그대로 남긴다. `needsPlanning=true`면 확장이 `c2h_plan_feedback`을 planner에 보낸다.
+2. planner는 자동 수신한 피드백을 story.md에 반영한다. 디자이너가 전한 사용자 요청은 사용자 의견이므로 플래너 초안의 제외 범위를 근거로 거절하지 않는다. 사용자가 이전에 명시적으로 정한 것과 충돌하거나 계획으로 정할 수 없을 때만 묻는다.
+3. `checkpoint STORY planning --note '디자인 피드백 반영: 바뀐 점'` → `ack planner ID`. `c2h_plan_next`나 방향 재선택은 호출하지 않는다.
+4. 확장이 고른 방향을 새 revision에 이어 붙여 `keep_direction` 요청을 designer에게 보낸다. designer는 방향을 다시 묻지 않고 design.md·preview.html을 갱신해 `c2h_design_next`를 호출한다.
 
-## 결과 브리핑 후 선택
+## QA 검증 계약
 
-executor는 `node .harness/bin/c2h.mjs wait REQUEST_ID --timeout 1`로 상관관계·보고서·소스 기준을 검증한다.
-실제 코드와 대조한 **지적 / 확인 / 권고 / 수정안·영향·검증**을 review-brief.md에 저장하고 한 번에 브리핑한다.
-수락 기록 후 해당 결과만 ack하고 waiter 하나를 재무장한다. 이미 수락한 결과는 재검증하되 중복 처리하지 않는다.
+선택 사항이다. 만들면 handoff에 고정되고 완료 전에 현재 버전의 QA PASS가 필요하다. 없으면 QA는 종합 검토에 일반 보고서로 참여한다.
 
-브리핑·ack 후 resume이 `review_decision`인 첫 리뷰에서만 Claude **AskUserQuestion**, `multiSelect: false`로 다음을 묻는다.
-`completion_choices`인 재리뷰는 바로 **사용자 완료 선택**으로 간다. 수동 `/executor` 재개도 같은 분기를 따른다. **리뷰 수신은 수정 승인이 아니다.**
+1. `c2h_qa_interview(story)`로 사용자에게 가치·허용 불가 실패·독립 정답 기준·경계·비운영 환경을 묻는다. 기대값은 사용자에게서 받고 구현에서 추론하지 않는다.
+2. `qa-contract.json` version 1: `criteria:[{id,value,condition,oracle,cases:[str],required,irreversible,tests:[relative path]}]`. 실행 가능한 테스트는 `.harness/stories/STORY/acceptance/`에만 둔다. negative·재현 확인을 권장한다.
+3. `c2h_qa_ready(story, contract)`가 값·계약·테스트를 고정하고 planner에 알린다. 계약 준비 중에는 디자이너가 자동 인계하지 않는다.
+4. 승인 뒤 acceptance 테스트를 약화·삭제·건너뛰지 않는다. 바꾸려면 새 범위 승인이 필요하다. 런타임은 drift를 감지하지만 OS sandbox는 아니다.
 
-- **수정안 고르기 (`accept`)**: `.claude/skills/accept/SKILL.md`를 읽고 수정안 다중 선택 UI를 연다.
-  accept 선택 자체는 수정 승인이 아니다. 이후 사용자가 명시적으로 고른 개별 수정안만 승인한다.
-- **지적 사항 논의하기 (`feedback`)**: `.claude/skills/feedback/SKILL.md`를 읽고 논의할 항목 선택·대화를 진행한다.
-  논의는 수정 승인이 아니며 소스를 바꾸지 않는다.
+## 구현과 자동 구간
 
-선택한 절차를 같은 세션에서 실행한다. 명령 재입력 요구 없음. 직접 `/accept`·`/feedback` 호출도 유지한다.
-취소·빈 응답·타임아웃·자동 계속은 선택이 아니다. UI가 없으면 이유를 알리고 중단한다.
-이 경우 review_decision을 유지하고 소스 수정·재리뷰·DONE 없이 멈춘다. 선택창을 즉시 반복해서 열지 않는다.
+executor가 사용자 선택 없이 이어서 수행한다. 각 단계 전에 resume으로 상태와 `auto`를 확인한다.
 
-`/accept`는 AskUserQuestion 다중 선택으로 명시적으로 고른 수정안만 승인한다. 긴 목록은 나눠 받고 최종 요약을 확인한다.
-선택 직전·직후 요청·revision·수정안을 재검증한다. 바뀌었으면 다시 선택받는다.
-승인 근거 저장 후 `node .harness/bin/c2h.mjs checkpoint STORY fixing --approved --note '실제로 선택한 지적 ID·수정 범위·승인 근거 경로'`으로 진행한다.
-선택하지 않은 항목은 보류한다. 수정·검증·implementation_done 기록 후 **사용자 완료 선택**으로 간다. `/feedback`은 논의만 한다.
+1. **착수**: `implementation_request`의 승인·revision을 확인하고 그 메시지만 ack한다. planner·designer가 승인한 인계에 다시 선택을 요구하지 않는다.
+2. **구현**: 승인된 범위만 구현한다. 계획의 공백·세부 모순은 묻지 않고 계획 의도에 가장 가까운 선택을 한 뒤 implementation.md `## 구현 판단`에 근거(계획 줄)와 함께 남긴다. 범위·완료 조건이 바뀌어야 할 때만 멈추고 묻는다. 필요한 테스트·빌드·브라우저 검증을 하고 implementation.md에 변경 파일·완료 조건별 명령과 실제 결과·미실행 항목을 쓴 뒤 `checkpoint STORY implementation_done --note '구현·검증 완료'`.
+3. **종합 검토 요청** (`auto: quality`): `node .harness/bin/c2h.mjs quality STORY`. 살아 있는 reviewer·designer·QA가 같은 동결 버전을 검토한다. 요청 ID를 보존하고 회신까지 소스를 바꾸지 않는다. pending 요청은 재사용한다.
+4. **브리핑** (`brief`): `wait REQUEST_ID --timeout 1`로 회신을 검증하고 각 역할의 원본 보고서를 읽어 R/D/Q 지적·증거·한계를 짧게 브리핑한 뒤 그 회신만 ack한다. 누락 보고서는 PASS가 아니다.
+5. **계획 대비 반영** (`auto: apply`): 지적마다 story.md·design.md·QA 계약과 실제 코드를 대조한다.
+   - 반영: 계획·디자인·QA 계약 불일치, 실제 결함(버그·테스트 실패·완료 조건 누락·보안/데이터 손실 위험)
+   - 반영 안 함: 계획 밖 취향, 틀린 지적, 범위 확대·새 의존성이 필요한 제안
 
-기존 코드리뷰/Fix·실행자 QA/Fix 한도(각 3회, 같은 실패 연속 2회면 blocked), 수동 확인·학습 게이트는 유지한다.
-학습은 선택 또는 기존 스토리의 필수 게이트일 때만 수행하며 새 범위로 강제하지 않는다.
-모든 게이트와 사용자 완료 확인 전에는 DONE/index 체크를 자동 기록하지 않는다.
+   implementation.md `## 리뷰와 반영`에 지적 ID → 반영 여부 → 근거를 표로 남긴다. 반영할 것이 있으면 `checkpoint STORY fixing --approved --note '자동 반영: R1, D2 (계획 근거)'` → 수정·재검증 → `checkpoint STORY implementation_done --note '자동 반영 검증'`. 반영할 것이 없으면 7(완료)로 간다.
+6. **수정 재리뷰** (`auto: recheck`): `node .harness/bin/c2h.mjs quality STORY --recheck`. reviewer(QA 계약이 있으면 QA도)가 직전 리뷰 이후 바뀐 부분(`changes STORY --since review`)만 다시 본다. 회신은 4–5와 같이 브리핑·반영하고, 새로 반영할 것이 없으면 완료한다.
+7. **완료** (`auto: done`): 계획에 '사람 확인 필수' 항목이 있을 때만 AskUserQuestion으로 한 번 결과를 받는다. `checkpoint STORY done --approved --note '자동 완료: 반영 ID·검증 근거'`. 런타임이 검증 기준·QA PASS를 확인하고 planner 완료 정리 인계를 함께 저장한다.
+8. 완료 후 결과를 짧게 알리고 listener를 유지한 채 대기한다. 다음 구현은 새 승인 인계로만 시작한다.
 
-## 사용자 완료 선택
+마지막 검증 이후 소스가 바뀌면 완료할 수 없다. 리뷰 요청(종합 검토·수정 재리뷰)은 스토리당 3회까지이고 런타임이 그 이상을 거절한다. 한도에 닿으면 QA 계약이 없을 때는 검증된 수정으로 완료하고(`auto: done`), 있으면 `auto_stopped`로 멈춰 사용자에게 묻는다. 같은 수정이 연속 2회 실패하면 멈추고 묻는다.
 
-리뷰 반영·검증이 끝나면 implementation.md에 수정 내용·검증 결과·미해결 사항·필요한 수동 확인 방법을 기록한다.
-`checkpoint STORY implementation_done --note '수정·검증 완료'`는 현재 수정본의 기준을 고정한다. 사용자 선택 전에 기록하며 선택 후 기준을 몰래 갱신하지 않는다.
-재리뷰 결과는 검증·브리핑·ack 후 바로 이 메뉴로 온다. 새 지적을 자동 적용하거나 accept / feedback 메뉴를 반복하지 않는다.
+## 자동 완료가 막혔을 때
 
-Claude **AskUserQuestion**, `multiSelect: false`로 아래 3개를 제시하고 기다린다.
+QA 필수 기준이 재검증 후에도 FAIL·blocked이거나, 같은 수정이 연속 2회 실패하거나, 계획을 바꿔야만 반영할 수 있는 지적이 있거나, resume이 `auto_stopped`(리뷰 한도)를 보이거나, done이 거부된 경우다. 이유를 implementation.md에 쓰고 AskUserQuestion 단일 선택으로 묻는다.
 
-1. **확인 완료 · 스토리 종료**: 현재 수정본을 사용자가 직접 확인했고 만족한다는 최종 승인이다.
-   필수 완료 게이트가 미해결이면 이유를 알리고 완료하지 않는다. 확인 내용·남은 항목의 판단을 implementation.md에 먼저 기록한다.
-   `node .harness/bin/c2h.mjs checkpoint STORY done --approved --note '사용자 완료 선택·수동 확인·게이트 근거'`를 실행한다.
-   재리뷰는 필수가 아니다. 마지막 구현 검증 후 소스가 바뀌었으면 중단하고 재검증·재확인을 받는다. 완료 명령이 planner 인계를 함께 저장한다.
-2. **문제 있음 · 논의/수정**: 무엇이 미반영됐거나 새로 발견됐는지 대화한다. 이 선택 자체는 수정 승인이 아니다.
-   사용자가 구체적으로 요청한 수정 범위·근거를 기록한 뒤 `checkpoint STORY fixing --approved --note '사용자가 요청한 구체적 수정·근거'`로 승인한다.
-   모호하면 먼저 확인한다. 승인된 수정만 수행·검증하고 implementation.md와 implementation_done을 갱신한 뒤 같은 3개 선택으로 돌아온다.
-3. **추가 리뷰 요청**: implementation.md에 이전 요청 ID·추가 보강 내용·검증 결과·다시 검토할 질문을 기록한다.
-   `.claude/skills/harness-review/SKILL.md`를 같은 세션에서 수행한다. implementation_done이면 `review STORY`,
-   재리뷰 회신 후 review_decision이면 `review STORY --again`으로 새 요청을 만든다. 열린 요청은 재사용하고 소스를 동결한다.
-   reviewer는 이 보강 기록을 기반으로 검토·회신한다. executor가 검증·브리핑한 뒤 다시 이 3개 선택으로 돌아온다.
+1. **확인 완료 · 스토리 종료**: `checkpoint STORY done --approved --note '사용자 완료 확인'`. 필수 게이트는 런타임이 여전히 확인한다.
+2. **문제 있음 · 수정**: 사용자가 말한 수정 범위를 기록하고 `checkpoint STORY fixing --approved --note '사용자 요청 수정'` → 검증 → implementation_done → 자동 구간 6.
+3. **추가 검토**: 다시 볼 질문을 기록하고 `quality STORY --again --approved` → 자동 구간 4부터. `--approved`는 리뷰 한도를 넘는 사용자의 선택이라는 뜻이다.
 
-취소·빈 응답·타임아웃·자동 계속·UI 없음이면 상태를 유지하고 멈춘다. 완료·수정·재리뷰를 자동 선택하지 않는다.
-논의만 하고 수정 요청이 없으면 대화를 이어가거나 사용자가 준비됐을 때 같은 선택으로 돌아온다. 반복 선택창으로 답변을 강요하지 않는다.
+사용자가 자동 반영 대신 **수정안을 직접 고르겠다**고 하면 review_decision에서 지적을 AskUserQuestion 다중 선택(기본 선택 없음)으로 보여주고, 고른 것만 `fixing --approved --note '선택한 지적 ID'`로 진행한다. **지적 하나를 논의하자**고 하면 실제 코드와 대조해 설명하고 `## 리뷰와 반영`에 기록한다. 논의는 수정 승인이 아니다.
 
-## 완료 → 다음 계획
+## 리뷰
 
-완료 명령은 현재 스토리의 done checkpoint·확인한 소스 기준·planning_request를 같은 쓰기 잠금 안에서 저장한다. 재시도는 같은 인계를 재사용한다.
-executor는 완료 전 implementation.md 상단에 '다음 작업용 요약'(결과·경로·계약·남은 제약·완료 근거 링크)을 저장한다. 완료·인계 저장 결과와 `/clear` → `/executor`를 안내하고 대기한다. 다음 구현을 시작하지 않는다.
+reviewer는 확장이 전달한 요청으로 시작한다. 첫 구현이 끝났는데 요청이 없으면 `/harness`가 `review STORY` 요청을 만든다.
 
-planner Pi 확장은 유효한 완료 요청을 감지한다. 이전 작업 대화가 있으면 요청을 ack하지 않고 `/harness-new`를 안내한다. 사용자 명령이 새 세션 생성·재검증·재개를 수행하며 `/plan` 재입력은 필요 없다. 빈 새 세션은 자동 수신한다.
-planner는 resume의 `plan_next`와 직전 완료 checkpoint·implementation.md의 '다음 작업용 요약'을 검증하고 index.md의 한 줄 완료 표시를 맞춘다. 불명확한 근거만 추가로 읽는다. 승인된 story.md·리뷰·QA 원본은 동결·보존한다.
-`.pi/prompts/plan.md`를 읽어 기존 요구·우선순위·의존성에 따라 다음 스토리 계획을 작성한다. 다음 대상이 없거나 불명확하면 사용자에게 묻고 임의 기능을 만들지 않는다.
-다음 계획의 planning checkpoint와 인계 수락 기록을 저장한 뒤 해당 planning_request만 ack한다. 착수 전에 ack하지 않는다.
-계획이 준비되면 기존 c2h_plan_next의 handoff / refine / discuss 선택을 연다. 다음 구현은 별도 사용자 승인 필요.
-같은 작업의 자동 수신이 실패하면 같은 인계의 `/planner`로 재개한다. 이전 작업 컨텍스트가 남아 있으면 `/harness-new`를 사용한다. 새 요청을 만들거나 사용자 pane에 키를 주입하지 않는다.
+1. 요청·승인 범위·implementation.md·변경 파일을 읽고 위험에 필요한 호출부·타입·테스트만 확인한다. 바뀐 경로는 `changes STORY`(승인 이후)로 본다. 수정 재리뷰(요청의 `recheck_of`)면 `changes STORY --since review`로 직전 리뷰 이후 바뀐 부분과 `## 리뷰와 반영`만 본다. Git diff는 있을 때만 참고하고 없으면 한계로 기록한다.
+2. 작고 대상이 명확한 비변경 unit/repro 확인만 허용한다. E2E·브라우저·개발 서버·전체 suite는 executor 몫이다. 소스·생성물을 바꾸지 않는다.
+3. `records/review-N.md`에 요청 ID, 검토/미검토 범위, 지적(R1…: 심각도, 파일:라인, 실패 조건, 최소 수정안, 근거가 된 계획 줄 또는 결함 근거), 불확실성을 쓴다. 실행자 증거 인용과 직접 확인을 구분하고 계획 밖 취향은 '제안'으로 분리한다. 지적이 없어도 한계와 함께 기록한다.
+4. `checkpoint STORY review_ready --note '리뷰 초안 저장'` 후 **`c2h_review_next(requestId, review)`**로 전달한다. 별도 전송 승인은 없다. 새로 저장된 초안이 하나뿐이면 확장이 응답 종료 시 자동 전달한다.
+5. review_request를 미리 ack하지 않는다. 전송된 보고서는 불변이다.
 
-## 복구·보장 경계
+## 종합 검토
 
-- `node .harness/bin/c2h.mjs status`, `node .harness/bin/c2h.mjs resume ROLE`, `node .harness/bin/c2h.mjs inbox ROLE`로 확인한다.
-- 요청/회신 envelope 누락·상관관계 불일치·소스 drift·문서 충돌은 fail closed. 파일·승인을 추측해 재생성하지 않는다.
-- 열린 리뷰를 취소할 필요가 있으면 사용자 확인 후 `node .harness/bin/c2h.mjs cancel-review REQUEST_ID --approved --note '취소 이유'`를 실행한다.
-  요청·취소 기록은 보관하며 늦은 reply는 거절한다. 소스 drift는 재검증 후 새 리뷰를 받아야 한다.
-- reviewer는 `/reviewer`, executor는 `/executor`, planner 완료 인계는 `/planner`로 재개한다. 새 요청 남발·동의 없는 사용자 세션 재시작·relayout 금지. `/harness-new`는 명시적 사용자 전환이다.
-- listener 권한/알림이 실패하면 같은 세션에서 수동 resume/inbox, 기존 요청의 wait로 복구한다.
-  확장 선택 UI가 없으면 승인 선택을 위조하지 말고 설치·신뢰·reload를 먼저 해결한다.
-- CLI 출력은 JSON, 진단은 stderr다. 저장 성공은 상대 모델 실행 성공이 아니다.
-  오프라인 테스트는 실제 CLI 권한·알림·모델 준수의 100% 성공 증명이 아니다.
+`quality STORY` 요청은 reviewer·designer·QA에 독립적으로 전달된다. 요청된 보고서가 모두 모이면 런타임이 executor에게 한 번 회신한다.
+
+- 동결 중에는 정확히 상관된 `c2h_quality_request`만 읽기 전용으로 수행한다. 일반 보조 작업은 대기한다. 소스·생성물을 바꾸지 않는다.
+- designer는 승인 디자인 대비 실제 화면(D ID), QA는 완료 조건·오류·경계·회귀(Q ID), reviewer는 코드(R ID)를 본다. 지적마다 근거가 된 계획 줄을 적는다.
+- 준비된 비운영 환경·테스트 데이터만 쓴다. 서버·권한이 없으면 미실행/blocked로 기록한다. 운영 결제·메일·삭제는 하지 않는다. 브라우저 검증은 분리된 컨텍스트를 쓰거나 차례로 한다.
+- QA 계약이 있으면 `c2h_verify_workspace(requestId)`로 독립 제품 복사본을 만들고 `C2H_SUBJECT`를 그 경로로 지정해 고정된 acceptance 테스트를 실행한다. 기준마다 `c2h_qa_result(requestId, criterion, outcome, evidence)`로 기록한다. 증거는 `records/` 아래 Markdown이며 실제 명령·출력이 있어야 한다. 복사본은 sandbox가 아니고 `.env`가 포함될 수 있으니 비밀을 출력하지 않는다.
+- 보고서를 `records/`에 저장하고 `c2h_quality_next(requestId, report)`로 제출한다. 요청은 미리 ack하지 않는다.
+- 환경 부재로 blocked를 보고했다면 그 결과를 덮지 않는다. 사용자와 환경을 복구한 뒤 executor가 `checkpoint STORY blocked --note '환경 원인'` → `checkpoint STORY implementation_done --approved --note '복구 확인·재검증'` → `quality STORY`로 새로 요청한다.
+
+## 완료 정리
+
+완료 결과에는 **이 스토리에서 무슨 작업을 했는지**만 남긴다. 역할별·단계별 진행, 리뷰 지적, 검증 로그는 남기지 않는다.
+
+1. done 저장과 함께 planning_request가 planner에 간다. 확장이 idle pane에 새 작업 경계로 전달한다.
+2. planner는 story.md·implementation.md를 읽고 `records/result-draft.md`를 쓴다(4000자 이하).
+
+   ```markdown
+   # S001 — 제목
+
+   ## 한 일
+   - 사용자 관점 결과 몇 줄
+
+   ## 바뀐 파일
+   - (선택) 주요 경로
+   ```
+
+3. 저장하면 확장이 `result.md`를 확정하고(직접 호출은 `c2h_story_next(story, summary)`) 스토리 폴더의 나머지 파일·관련 메시지·검증 기준을 지운다. index.md 링크는 `SNNN/result.md`로 바뀐다.
+4. planner는 사용자에게 result.md 경로와 한 일을 알리고 **다음 스토리 요청을 기다린다**. 다음 스토리를 먼저 계획하지 않는다. 사용자가 요청하면 계획하고, 다음 스토리의 planning checkpoint를 저장한 **뒤** 완료 planning_request를 ack한다.
+5. `resume`에 `compaction_pending`이 있으면 확정 후 정리가 중단된 것이다. `compact-story STORY --summary .harness/stories/STORY/records/result-draft.md --approved`로 정리만 재시도한다. 지워진 원본은 복구하지 않는다.
+
+## 복구
+
+- 확인: `status`, `resume ROLE`, `inbox ROLE`, `diagnose`(경로별 drift·복구 안내). 저장 성공은 상대 역할의 실행 성공이 아니다.
+- envelope 누락·상관관계 불일치·소스 drift·문서 충돌은 fail closed다. 파일·승인을 추측해 만들지 않는다.
+- 열린 리뷰 취소는 사용자 확인 후 `cancel-review REQUEST_ID --approved --note '이유'`. 늦은 회신은 거절된다.
+- 종합 회신 저장 전에 중단됐으면 `quality-status REQUEST_ID`의 recovery 안내를 따른다. checkpoint 충돌은 우회하지 않고 원인을 먼저 조사한다.
+- 쓰던 프로세스가 강제 종료돼 남은 protocol lock은 resume·diagnose가 stale로 알린다. 그때만 사용자 확인 후 `unlock --approved`로 지운다. 살아 있는 writer의 lock은 거절되며 `busy`는 기다린다.
+- 승인된 story.md·design.md·preview·QA 계약/테스트가 바뀌어 모든 역할이 막히면 사용자 확인 후 `restore-approved STORY --approved`로 승인본을 되돌린다. 승인본 기록이 없는 이전 승인은 손으로 되돌리거나 새 스토리로 계획한다. 실제 범위 변경은 새 스토리다.
+- `changes STORY [--since approval|review]`: 구현 승인 이후 또는 직전 리뷰 이후 추가·삭제·변경된 경로(읽기 전용, diff 아님).
+- `board [--watch]`는 읽기 전용 상태판이다. 승인·재시작을 하지 않는다.
+- 소스 동결 기준은 파일 경로·권한·내용·링크 대상의 해시다. 백업이나 diff가 아니다. 새 기준(files-v3)은 Git이 새 저장소에 추가할 파일만 본다: 프로젝트의 `.gitignore`는 따르고 전역·info/exclude 규칙은 쓰지 않으며 `.harness/`·`.claude/`·`.pi/`·`.git`·`node_modules`·AGENTS.md·CLAUDE.md는 제외한다. Git이 없으면 `.gitignore`를 해석하지 않는 files-v2를 쓴다. 이미 기록된 기준은 원래 형식으로 비교한다.
+- **유지보수 갱신**: 역할 작업을 멈춘 뒤 설치기를 쓴다. 검증된 수정본이 외부 의존성으로 blocked이고 메시지·리뷰가 모두 처리됐을 때만 `--install-only --maintenance`로 갱신할 수 있다. 승인·checkpoint·검증 기준은 바꾸지 않고 `records/maintenance.json`에 기록한다. `.harness`·`.claude/`·`.pi/`·AGENTS.md·CLAUDE.md만 바뀌면 소스 검증 기준은 유지된다.
+- 오프라인 테스트는 실제 CLI 권한·알림·모델 준수의 증명이 아니다.

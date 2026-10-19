@@ -14,12 +14,12 @@
 | 시안 구역 | 제공할 결과 | 스토리 |
 | --- | --- | --- |
 | 01 버튼 / 02 입력창 | 기존 Button·Field·Input 유지, 재구현 제외 | 기존 구현 |
-| 03 선택 요소 | Select·Checkbox·Radio·Switch·분할 단일 선택 | [UI001](UI001/story.md) |
-| 04 사유와 금액 | Textarea·금액 입력·읽기 전용 금액 표시 | [UI001](UI001/story.md) |
-| 05 목록과 상태 표시 | Table·Badge·선택 행 표현 | [UI002](UI002/story.md) |
-| 06 중요한 행동 확인 | Dialog·확인/취소·사유 입력 조립 | [UI003](UI003/story.md) |
-| 07 빈 화면·불러오는 중·조회 실패 | Empty·Skeleton·Error·재시도 | [UI004](UI004/story.md) |
-| 08 처리 결과 알림 | Notice·Toast, 성공·경고·실패 | [UI004](UI004/story.md) |
+| 03 선택 요소 | Select·Checkbox·Radio·Switch·분할 단일 선택 | [UI001](UI001/result.md) |
+| 04 사유와 금액 | Textarea·금액 입력·읽기 전용 금액 표시 | [UI001](UI001/result.md) |
+| 05 목록과 상태 표시 | Table·Badge·선택 행 표현 | [UI002](UI002/result.md) |
+| 06 중요한 행동 확인 | Dialog·확인/취소·사유 입력 조립 | [UI003](UI003/result.md) |
+| 07 빈 화면·불러오는 중·조회 실패 | Empty·Skeleton·Error·재시도 | [UI004](UI004/result.md) |
+| 08 처리 결과 알림 | Notice·Toast, 성공·경고·실패 | [UI004](UI004/result.md) |
 
 계획 순서: UI001 → UI002 → UI003 → UI004. 한 번에 하나만 활성화·승인한다. 후속 문서 작성은 구현 승인이 아니다.
 

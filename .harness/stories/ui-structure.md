@@ -2,8 +2,8 @@
 
 ## 다음 작업에서 읽을 범위
 
-UI001~UI004의 사용자 최종 완료 확인은 각 checkpoint가 정본이다. 이 문서는 현재 사용할 결과·경계만 요약하며 당시 승인 범위·QA 증거를 변경하지 않는다. 공통 UI 완료는 S001 고객 기능 완료가 아니다.
-완료 스토리 상세는 기본으로 다시 읽지 않는다. 관련 결함·계약 변경·근거 확인 때만 아래 링크의 필요한 부분을 읽는다.
+UI001~UI004는 완료돼 각 스토리 폴더에 result.md만 남았다. 현재 사용할 결과·경계는 이 문서가 정본이다. 공통 UI 완료는 S001 고객 기능 완료가 아니다.
+당시 구현·리뷰 상세가 필요하면 git 이력에서 해당 스토리 폴더를 확인한다.
 
 ## 파일 배치·의존 규칙
 
@@ -23,11 +23,11 @@ UI001~UI004의 사용자 최종 완료 확인은 각 checkpoint가 정본이다.
 | 결과 | 폴더/계약 | 완료·상세 근거 |
 | --- | --- | --- |
 | 기존 기반 | `button/`, `field/`, `input/`, `theme.stylex.ts` 유지 | [기존 S001 기록](S001/implementation.md) |
-| 선택·사유·금액 | `select/`, `textarea/`, `choice/`, `segmented-control/`, `amount-field/`; `amount-field.util.ts`의 parseAmount/formatAmount 재사용 | [UI001 DONE](UI001/checkpoint.md), [상세](UI001/implementation.md) |
-| 목록·상태 | `table/`, `badge/`; 행 선택·상태값은 소비자 소유 | [UI002 DONE](UI002/checkpoint.md), [상세](UI002/implementation.md) |
-| 중요 행동 확인 | `dialog/`; 배경 drag 오닫힘 방지, 확인 버튼은 테두리형 유지 | [UI003 DONE](UI003/checkpoint.md), [상세](UI003/implementation.md) |
-| 조회 상태 | `empty-state/`, `skeleton/`, `error-state/`(정적 표현). 조회 목록은 `data-table/`의 DataTable이 상태 판정(`resolveTableState`)·다시 시도(`query.refetch`)까지 맡고, 재조회 실패 시 이전 목록을 유지한다 | [UI004 DONE](UI004/checkpoint.md), [상세](UI004/implementation.md) |
-| 처리 결과 | `notice/`의 Notice·LiveNotice(표시·닫기·포커스는 소비자 소유), `toast/`의 함수형 toast | [UI004 상세](UI004/implementation.md) |
+| 선택·사유·금액 | `select/`, `textarea/`, `choice/`, `segmented-control/`, `amount-field/`; `amount-field.util.ts`의 parseAmount/formatAmount 재사용 | [UI001](UI001/result.md) |
+| 목록·상태 | `table/`, `badge/`; 행 선택·상태값은 소비자 소유 | [UI002](UI002/result.md) |
+| 중요 행동 확인 | `dialog/`; 배경 drag 오닫힘 방지, 확인 버튼은 테두리형 유지 | [UI003](UI003/result.md) |
+| 조회 상태 | `empty-state/`, `skeleton/`, `error-state/`(정적 표현). 조회 목록은 `data-table/`의 DataTable이 상태 판정(`resolveTableState`)·다시 시도(`query.refetch`)까지 맡고, 재조회 실패 시 이전 목록을 유지한다 | [UI004](UI004/result.md) |
+| 처리 결과 | `notice/`의 Notice·LiveNotice(표시·닫기·포커스는 소비자 소유), `toast/`의 함수형 toast | [UI004](UI004/result.md) |
 
 Notice는 정적 표현, live 전달은 LiveNotice 한 곳에서 담당한다. 성공/경고는 status, 실패는 alert. 같은 결과의 재전달은 소비자가 `noticeKey`를 바꾼다. 중복 live 영역을 만들지 않는다.
 Toast는 flame-ui store 위의 함수형 API(`toast(content)`/`toast.success`/`warn`/`error`)이며 루트의 `<Toaster />` 하나가 그린다. `toast()`는 받은 내용을 그대로 그리고, 톤 함수는 결과 카드로 감싼다. 자동 소멸(기본 success 4초·warn/error 6초)·누르면 닫힘이고 포커스를 옮기지 않는다. live 전달은 Toaster 컨테이너(polite) 한 곳이 담당한다. 입력 오류는 토스트가 아니라 필드 가까이에 둔다.
@@ -39,4 +39,4 @@ Toast는 flame-ui store 위의 함수형 API(`toast(content)`/`toast.success`/`w
 - UI004 검토 화면의 max-dependencies 경고 2개, 열린 Toast의 다른 표시 버튼 비활성 시각 표현 한계, devtools 겹침과 작은 화면 가림 제약이 남아 있다. 긴 Toast 텍스트는 스크롤되지만 타 브라우저 키보드 스크롤은 미확인이다.
 - S001R2에서 논의한 등록 모달 전환·저장 중 닫힘 차단·코드 닫기 보강은 이 완료본의 제공 계약이 아니다. 디자인·구조 변경은 별도 승인 사항이다.
 
-전체 시안 대응·당시 범위는 [shared-ui-scope.md](shared-ui-scope.md). 이 요약은 새 테스트 실행 결과가 아니며 원본 story·review·QA·implementation은 그대로 보존한다.
+전체 시안 대응·당시 범위는 [shared-ui-scope.md](shared-ui-scope.md). 이 요약은 새 테스트 실행 결과가 아니다.

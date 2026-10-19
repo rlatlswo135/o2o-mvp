@@ -4,6 +4,8 @@
 범위 기준: [v1-scope.md](v1-scope.md).
 디자인 기준: [선택 시안과 공통 UI](../design/README.md). UI 작업 전 문서와 이미지를 함께 확인한다.
 전체 목록은 순서·크기 검토용 초안이며 구현 승인이 아니다.
+> 2026-10-19 새 하네스 적용으로 CURRENT.md·RESUME.md와 UI001~UI004의 result.md 외 파일은 지워졌다. 아래의 해당 링크는 git 이력에서만 열린다.
+
 현재 작업은 [CURRENT.md](../CURRENT.md), 재개 절차는 [RESUME.md](../RESUME.md)에서 확인한다. 현재 상태·승인은 런타임 checkpoint가 정본이며 승인된 story.md는 범위로 동결한다. 과거 S001 상태는 새 런타임 승인으로 승계하지 않는다.
 S001과 잔여 공통 UI(UI001~UI004)는 상세 문서가 있다. 나머지 업무 스토리는 목록 초안이며 착수 시 상세화한다.
 검토 후 독립 스토리는 28개다. S021은 S020에 통합했으며 기존 참조 혼동을 피하려고 ID와 순서 번호를 재부여하지 않는다.
@@ -12,10 +14,10 @@ S001과 잔여 공통 UI(UI001~UI004)는 상세 문서가 있다. 나머지 업�
 
 | ID / 문서 | 착수 가능 여부 | 대기 이유 |
 | --- | --- | --- |
-| UI001 [선택 값·사유·금액 입력](UI001/story.md) | DONE / 사용자 최종 확인 완료 | [done checkpoint](UI001/checkpoint.md)·[구현 기록](UI001/implementation.md)의 사용자 완료 확인 근거. CSS 진입점 수정·컴포넌트별 폴더 재배치 완료. Select 키보드·시안 대조는 사용자 확인으로 완료. 전체 check 기존 실패·미검증 환경은 기록대로 보존 |
-| UI002 [목록·상태 표시](UI002/story.md) | DONE / 사용자 최종 확인 완료 | [done checkpoint](UI002/checkpoint.md)·[구현 기록](UI002/implementation.md)의 사용자 완료 확인 근거. R1 선택 행 분기 테스트 반영·39/39, 시안 05·키보드 행 선택·좁은 화면 사용자 확인 완료. 기존 전체 check 실패·미검증 환경 보존 |
-| UI003 [중요 행동 확인 Dialog](UI003/story.md) | DONE / 사용자 최종 확인 완료 | [done checkpoint](UI003/checkpoint.md)·[구현 기록](UI003/implementation.md)의 사용자 완료 확인 근거. F1(drag 닫힘) 사용자 선택·반영, 테스트 45/45·dev/preview 각 41/41. 확인 버튼 테두리형 유지(지침). 기존 전체 check 실패·미검증 환경 보존 |
-| UI004 [조회 상태·처리 결과 피드백](UI004/story.md) | DONE / 사용자 최종 확인 완료 | [done checkpoint](UI004/checkpoint.md)·[구현 기록](UI004/implementation.md)의 사용자 완료 확인 근거. 리뷰 1 R1 → F1·권고 A1 사용자 선택·반영, 테스트 64/64·dev/preview 각 69/69. 로컬 수동 닫기 Toast. 신규 경고 2·실제 낭독·Safari/Firefox 미검증은 기록대로 보존 |
+| UI001 [선택 값·사유·금액 입력](UI001/result.md) | DONE / 사용자 최종 확인 완료 | [done checkpoint](UI001/checkpoint.md)·[구현 기록](UI001/implementation.md)의 사용자 완료 확인 근거. CSS 진입점 수정·컴포넌트별 폴더 재배치 완료. Select 키보드·시안 대조는 사용자 확인으로 완료. 전체 check 기존 실패·미검증 환경은 기록대로 보존 |
+| UI002 [목록·상태 표시](UI002/result.md) | DONE / 사용자 최종 확인 완료 | [done checkpoint](UI002/checkpoint.md)·[구현 기록](UI002/implementation.md)의 사용자 완료 확인 근거. R1 선택 행 분기 테스트 반영·39/39, 시안 05·키보드 행 선택·좁은 화면 사용자 확인 완료. 기존 전체 check 실패·미검증 환경 보존 |
+| UI003 [중요 행동 확인 Dialog](UI003/result.md) | DONE / 사용자 최종 확인 완료 | [done checkpoint](UI003/checkpoint.md)·[구현 기록](UI003/implementation.md)의 사용자 완료 확인 근거. F1(drag 닫힘) 사용자 선택·반영, 테스트 45/45·dev/preview 각 41/41. 확인 버튼 테두리형 유지(지침). 기존 전체 check 실패·미검증 환경 보존 |
+| UI004 [조회 상태·처리 결과 피드백](UI004/result.md) | DONE / 사용자 최종 확인 완료 | [done checkpoint](UI004/checkpoint.md)·[구현 기록](UI004/implementation.md)의 사용자 완료 확인 근거. 리뷰 1 R1 → F1·권고 A1 사용자 선택·반영, 테스트 64/64·dev/preview 각 69/69. 로컬 수동 닫기 Toast. 신규 경고 2·실제 낭독·Safari/Firefox 미검증은 기록대로 보존 |
 | S001 [고객 등록 → 목록 확인 — 실행 revision S001R2](S001R2/story.md) | blocked / FE 사용자 확인 완료·사용자 BE 작업 대기 | [구현 기록](S001R2/implementation.md)·[브리핑](S001R2/review-brief.md): 리뷰 1 F1·F2 선택·반영·FE 확인 완료. [BE 직접 구현 가이드](S001R2/be-guide.md) 작성됨; 사용자가 단계별 구현·검증. 실제 연결·상속 학습 전 전체 DONE 금지. 디자인/구조 보강은 별도 보류. 기존 [S001 승인 이력](S001/story.md) 동결·보존. [수락 기록](S001R2/planning.md) |
 
 범위 정본: [시안 기준 공통 UI 잔여 범위](shared-ui-scope.md). 후속 파일 배치는 [현재 UI 구조](ui-structure.md)를 따른다. 기존 Button·Field·Input 및 UI001~UI004 완료본을 유지한다. 네 UI 스토리의 done checkpoint·사용자 최종 확인으로 시안 잔여 공통 UI 묶음은 완료됐다. 기존 검사 실패·경고·미검증 환경은 각 구현 기록대로 남기며, 공통 UI 완료를 S001 고객 기능 완료로 확장하지 않는다.

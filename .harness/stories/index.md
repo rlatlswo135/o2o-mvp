@@ -1,25 +1,25 @@
 # V1 스토리 인덱스
 
 범위·업무 규칙: [v1-scope.md](v1-scope.md). 디자인: [기준·이미지](../design/README.md).
-현재 작업·승인·phase: [CURRENT.md](../CURRENT.md) → 해당 런타임 checkpoint. 이 목록은 구현 승인이 아니다.
+현재 작업·승인·phase: `node .harness/bin/c2h.mjs status` → 해당 런타임 checkpoint. 이 목록은 구현 승인이 아니다.
 업무 스토리 28개. S021은 S020에 통합했고 ID는 유지한다. S001R2는 S001의 실행 revision이며 별도 업무 스토리가 아니다.
 
 ## 완료된 공통 UI
 
-사용 가능한 결과·계약·남은 제약: [ui-structure.md](ui-structure.md). 상세 이력은 관련 조사 때만 읽는다.
+사용 가능한 결과·계약·남은 제약: [ui-structure.md](ui-structure.md). 완료 스토리 폴더에는 result.md만 남는다.
 
-| 스토리 | 결과 | 완료 근거 |
+| 스토리 | 결과 | 결과 기록 |
 | --- | --- | --- |
-| UI001 | 선택·사유·금액 입력 완료 | [DONE](UI001/checkpoint.md) |
-| UI002 | 목록·상태 표시 완료 | [DONE](UI002/checkpoint.md) |
-| UI003 | 중요한 행동 확인 Dialog 완료 | [DONE](UI003/checkpoint.md) |
-| UI004 | 조회 상태·처리 결과 피드백 완료 | [DONE](UI004/checkpoint.md) |
+| UI001 | 선택·사유·금액 입력 완료 | [result](UI001/result.md) |
+| UI002 | 목록·상태 표시 완료 | [result](UI002/result.md) |
+| UI003 | 중요한 행동 확인 Dialog 완료 | [result](UI003/result.md) |
+| UI004 | 조회 상태·처리 결과 피드백 완료 | [result](UI004/result.md) |
 
 공통 UI 완료는 고객 기능 완료가 아니다. 기존 검사 실패·경고·미검증 환경은 ui-structure의 제약과 원본 구현 기록대로 남는다.
 
 ## 업무 스토리 후보
 
-아래는 범위·의존성 목록이다. 완료 판정은 해당 checkpoint, 진행 중 세부 상태는 CURRENT에서 확인한다.
+아래는 범위·의존성 목록이다. 완료된 스토리는 result.md, 진행 중 세부 상태는 런타임 checkpoint(`c2h.mjs status`)에서 확인한다.
 S001의 FE 확인만으로 전체 완료·후속 의존성 충족을 선언하지 않는다. [사용자 BE 가이드](S001R2/be-guide.md), [현재 범위](S001R2/story.md).
 AI는 FE, 사용자는 BE·구성을 담당한다. 실고객 데이터는 인증·접근 보호와 운영 준비 후에만 사용한다.
 

@@ -4,7 +4,7 @@
   "planning_from": "20261006T041635308000Z-c8e7d91206a1",
   "phase": "blocked",
   "note": "FE 사용자 확인 완료; 사용자 직접 BE 구현·실제 연결·학습 게이트 대기. 소스 변경 승인 아님",
-  "updated": "2026-10-06T07:45:19.888Z",
+  "updated": "2026-10-19T06:06:30.511Z",
   "approval": {
     "kind": "fix",
     "story_hash": "dcde0526aa0b26b53b907351337af1816b4cb5ddcc3a0c3cb457df7a619d4c8b",

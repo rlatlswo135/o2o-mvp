@@ -14,26 +14,29 @@
 ### 완료 조건
 - Given … When … Then …
 
+### Design (when story has visual UI)
+- 2–3 story-specific directions + direction the user chose:
+- Concrete tokens, states, implementation guidance (design.md):
+- Story-folder HTML preview (preview.html, one file updated in place):
+
 ### 검증 계획
 - executor 검증 명령·기대 결과:
-- 수동 테스트 필요 여부/이유:
+- 수동 확인: executor가 브라우저로 대신 확인할 항목 / 사람 확인 필수 항목과 이유(자동화로 대신할 수 없을 때만, 없으면 '없음'):
 - 학습: 선택 / 기존 필수 / 불필요 (근거와 필요한 산출물)
 
 ## 완료 게이트 정의
-- 정확한 스토리 revision의 사용자 구현 승인
-- 고정 기준 코드 리뷰와 사용자 리뷰 결정
-- 완료 조건별 executor QA 증거 (코드 리뷰로 대체 불가)
-- 수동 테스트 사용자 확인 또는 불필요 사유
+- 정확한 스토리 revision의 사용자 구현 승인 (c2h_plan_next의 실행자·디자이너 인계 선택)
+- 고정 기준 종합 검토와 계획 대비 지적 반영 기록
+- 완료 조건별 executor 검증 증거 (코드 리뷰로 대체 불가)
+- QA 계약이 있으면 수정본 기준 QA 필수 기준 PASS
+- 수동 확인 항목의 executor 브라우저 확인 증거, 사람 확인 필수 항목이 있으면 사용자 확인
 - 선택/상속된 학습 게이트 충족 또는 불필요 사유
-- 사용자 최종 완료 확인 (자동 DONE 금지)
 
 ## 진행 기록 위치
-- `checkpoint.md`: 런타임이 만드는 현재 phase·승인·요청 기록. 직접 편집 금지.
-- `implementation.md`: 변경·검증·완료 게이트 결과·수동 확인·반복 횟수·인계 이력. 완료 전 상단 '다음 작업용 요약'에 결과·경로·계약·남은 제약·완료 근거 링크만 남기며 기존 이력은 보존한다.
-- `planning.md` / `impact.md`: 스토리별 계획·영향 분석. 외부 스킬의 specs/*·공용 LATEST 경로를 사용하지 않는다.
-- `review-N.md`: 해당 요청의 코드 리뷰. 보내기 전 논의·보강 가능, 전송 후 불변.
-- `review-brief.md`: 지적별 확인·권고·수정안·사용자 선택·보류 근거.
-- `.harness/CURRENT.md`: 런타임이 관리하는 현재 포인터. `index.md`: 한 줄 이름·링크·의존성·최종 사용자 확인된 DONE만. 세부 상태·이력은 복제하지 않는다.
+- `implementation.md`: 변경·검증·완료 게이트 결과·수동 확인과 `## 구현 판단`, `## 리뷰와 반영`(지적 ID → 반영/반영하지 않음 → 근거).
+- `planning.md` / `impact.md`: 필요할 때만 쓰는 스토리별 영향 분석. 외부 스킬의 specs/*·공용 LATEST 경로를 사용하지 않는다.
+- `records/`: 런타임·역할 기록(`checkpoint.md`는 직접 편집 금지, 보고서는 전송 후 불변).
+- 완료되면 planner가 이 스토리에서 한 일만 `result.md`에 남기고 나머지 파일은 지워진다.
 
-코드리뷰 Fix·executor QA Fix는 각각 최대 3회, 같은 실패 연속 2회면 blocked.
+리뷰 요청(종합 검토·수정 재리뷰)은 스토리당 3회까지, 같은 수정이 연속 2회 실패하면 멈추고 사용자에게 묻는다.
 필요한 모델 변경은 사용자가 결정한다. 후속 기록은 이 스토리 범위를 임의 확대하지 않는다.

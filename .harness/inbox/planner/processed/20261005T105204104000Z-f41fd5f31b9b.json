@@ -8,5 +8,6 @@
   "sender": "executor",
   "target": "planner",
   "story": "UI001",
-  "message": "User confirmed story completion. Plan the next story; implementation requires separate approval."
+  "message": "User confirmed story completion. Plan the next story; implementation requires separate approval.",
+  "compacted": true
 }
