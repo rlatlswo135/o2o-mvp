@@ -10,6 +10,12 @@
 - 기능 폴더(`features/<도메인 복수형>/`)의 역할 파일은 `<폴더 이름>.<역할>.ts`로 짓는다. 서버와 같은 규칙이다. 예: `customers.schema.ts`(zod 스키마·추론 타입), `customers.api.ts`(query 객체·등록 등 서버 상태 함수).
 - 컴포넌트 파일은 컴포넌트 이름의 kebab-case로 짓는다. 단·복수는 컴포넌트 이름을 따른다. 예: `CustomerForm` → `customer-form.tsx`, `CustomersPage` → `customers-page.tsx`.
 - 역할 파일에는 그 역할만 둔다. 스키마 파일에 검증 래퍼·문자열 가공 함수를 쌓지 않는다.
+- 기능 폴더는 평평하게 두고, 서로만 쓰는 파일 묶음만 하위 폴더로 묶는다. 예: `features/customers/forms/`(공통 폼 + 그 폼을 쓰는 생성·수정 폼). `components/`·`hooks/`처럼 종류로 나누는 폴더와 barrel `index.ts`는 만들지 않는다. 하위 폴더 안에서만 쓰는 파일은 밖에서 import하지 않는다. `<폴더 이름>.<역할>.ts` 규칙은 기능 폴더 최상위에만 적용한다.
+
+## 주석
+
+- 함수·props의 역할을 길게 설명하지 않는다. 이름으로 알 수 있으면 쓰지 않는다.
+- 이름만으로 알 수 없는 이유가 있을 때만 한 줄로 짧게 쓴다. 예: `// 늦게 온 이전 조회가 덮지 않게 취소 후 반영`.
 
 ## 테스트
 
@@ -38,6 +44,7 @@
 - 콜백 위치를 나눈다.
   - 캐시 갱신·무효화처럼 화면과 무관하게 반드시 일어나야 하는 일 → `useMutation` 옵션(`mutationFn`·`onSuccess` 등). 컴포넌트가 언마운트돼도 실행된다.
   - 패널 닫기·토스트·폼 오류·포커스처럼 화면에 묶인 일 → `mutate(input, { onSuccess })`. 언마운트되면 실행되지 않는다.
+- mutation을 부르지 않는 컴포넌트가 저장 중인지 알아야 하면 `api.ts`의 도메인별 mutation 키 객체(`customerMutationKeys`, `all()`에서 이어 만듦)를 `mutationKey`로 주고 `useIsMutating({ mutationKey: customerMutationKeys.all() })`로 읽는다. 저장 중 상태를 콜백으로 끌어올리지 않는다.
 
 ## 조회 목록
 
@@ -51,6 +58,7 @@
 - 폼 값·항목 오류는 TanStack Form `useForm`으로 다룬다. 입력 확인은 zod 스키마를 `validators.onSubmit`에 그대로 넘긴다.
 - 확인은 스키마 변환(trim 등)을 적용한 값을 돌려주지 않는다. `onSubmit`에서 `schema.parse(value)`로 다듬은 값을 얻어 넘긴다. 확인을 통과한 뒤라 실패하지 않으며, 저장 함수는 다시 확인하지 않고 스키마 출력 타입만 받는다.
 - 서버가 돌려준 항목 오류(중복 등)는 `form.setFieldMeta(name, (meta) => ({ ...meta, errorMap: { ...meta.errorMap, onSubmit: message } }))`로 넣는다. 스키마 오류처럼 해당 입력을 고치면 사라진다.
+- 생성·수정은 `mode`·`isEdit` 같은 prop으로 한 컴포넌트에서 분기하지 않는다. 공통 폼(입력·틀·확인)은 생성인지 수정인지 모르게 두고, 생성 폼·수정 폼이 각자 문구·처음 값·저장(mutation)·결과 처리를 갖고 공통 폼에 값으로 넘긴다. 약간의 중복은 감수한다. 공통 폼에 한쪽만 쓰는 boolean prop이 생기면 children 슬롯으로 바꾸고, 필드 구성이 갈라지면 TanStack Form의 `createFormHook`·`withForm`으로 필드만 공유한다. 예: `customers/forms/`.
 
 ## 결과 알림
 

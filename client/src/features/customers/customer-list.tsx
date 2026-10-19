@@ -7,39 +7,64 @@ import { useQuery } from "@tanstack/react-query";
 import type { DataTableColumn } from "@/shared/ui/data-table/data-table.tsx";
 
 import { formatPhone } from "@/shared/format/phone.ts";
+import { Button } from "@/shared/ui/button/button.tsx";
 import { DataTable } from "@/shared/ui/data-table/data-table.tsx";
 
 import { colors } from "../../shared/ui/theme.stylex.ts";
 import { customerQueries } from "./customers.api.ts";
 
-const columns: ReadonlyArray<DataTableColumn<Customer>> = [
-  {
-    key: "number",
-    header: "No.",
-    cell: (_, index) => (
-      <span {...stylex.props(styles.number)}>{String(index + 1).padStart(2, "0")}</span>
-    ),
-  },
-  {
-    key: "name",
-    header: "이름",
-    cell: (customer) => <span {...stylex.props(styles.name)}>{customer.name}</span>,
-  },
-  {
-    key: "phone",
-    header: "전화번호",
-    cell: (customer) => <span {...stylex.props(styles.phone)}>{formatPhone(customer.phone)}</span>,
-  },
-];
-
 export type CustomerListProps = {
-  /** 목록 제목 옆 동작(고객 등록 등). */
   toolbar?: ReactNode;
+  onEdit?: ((customer: Customer, trigger: HTMLButtonElement) => void) | undefined;
+  editingId?: number | undefined;
 };
 
-/** 고객 목록. 조회와 불러오는 중·실패·빈 결과 표현은 DataTable이 맡는다. */
-export function CustomerList({ toolbar }: CustomerListProps) {
+export function CustomerList({ toolbar, onEdit, editingId }: CustomerListProps) {
   const query = useQuery(customerQueries.list());
+
+  const columns: ReadonlyArray<DataTableColumn<Customer>> = [
+    {
+      key: "number",
+      header: "No.",
+      cell: (_, index) => (
+        <span {...stylex.props(styles.number)}>{String(index + 1).padStart(2, "0")}</span>
+      ),
+    },
+    {
+      key: "name",
+      header: "이름",
+      cell: (customer) => <span {...stylex.props(styles.name)}>{customer.name}</span>,
+    },
+    {
+      key: "phone",
+      header: "전화번호",
+      cell: (customer) => (
+        <span {...stylex.props(styles.phone)}>{formatPhone(customer.phone)}</span>
+      ),
+    },
+    ...(onEdit
+      ? [
+          {
+            key: "actions",
+            header: "관리",
+            align: "end",
+            cell: (customer: Customer) => {
+              const editing = customer.id === editingId;
+              return (
+                <Button
+                  variant={editing ? "primary" : "secondary"}
+                  aria-label={`${customer.name} 고객 정보 수정`}
+                  aria-expanded={editing}
+                  onClick={(event) => onEdit(customer, event.currentTarget)}
+                >
+                  수정
+                </Button>
+              );
+            },
+          } satisfies DataTableColumn<Customer>,
+        ]
+      : []),
+  ];
 
   return (
     <DataTable
@@ -61,7 +86,6 @@ export function CustomerList({ toolbar }: CustomerListProps) {
   );
 }
 
-/** 불러온 고객 수. 같은 조회 캐시를 쓰므로 요청이 늘지 않는다. 불러오기 전에는 그리지 않는다. */
 export function CustomerCount() {
   const { data } = useQuery(customerQueries.list());
   if (data === undefined) return null;

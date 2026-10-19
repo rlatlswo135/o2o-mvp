@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 
 import { colors } from "../../shared/ui/theme.stylex.ts";
 
-/** 사장님 화면 틀(왼쪽 메뉴·상단 바). 아직 만든 화면이 고객뿐이라 메뉴도 고객만 둔다. */
+// 메뉴는 만든 화면(고객)만 둔다
 export function CustomersShell({ children }: { children: ReactNode }) {
   return (
     <div {...stylex.props(styles.shell)}>

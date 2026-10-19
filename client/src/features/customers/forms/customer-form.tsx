@@ -1,54 +1,51 @@
 import type { CustomerInput } from "@o2o/shared/contracts";
-import type { FormEvent, RefObject } from "react";
+import type { FormEvent } from "react";
 
 import { customerInputSchema } from "@o2o/shared/contracts";
 import * as stylex from "@stylexjs/stylex";
 import { useForm } from "@tanstack/react-form";
-import { useEffect } from "react";
+import { useId } from "react";
 
 import { Button } from "@/shared/ui/button/button.tsx";
 import { Field } from "@/shared/ui/field/field.tsx";
 import { Input } from "@/shared/ui/input/input.tsx";
 
-import { colors, controls } from "../../shared/ui/theme.stylex.ts";
+import { colors, controls } from "../../../shared/ui/theme.stylex.ts";
+
+export type CustomerFormValues = { name: string; phone: string };
 
 export type CustomerFormProps = {
-  /** 패널 제목 id. 패널 section의 접근 이름이 된다. */
-  titleId: string;
-  /** 이름 입력. 패널이 열리거나 이미 열린 상태에서 등록 버튼을 누르면 여기로 포커스한다. */
-  nameInputRef: RefObject<HTMLInputElement | null>;
+  title: string;
+  closeLabel: string;
+  submitLabel: string;
+  defaultValues: CustomerFormValues;
   saving: boolean;
-  /**
-   * 스키마 확인을 통과해 다듬어진(trim) 입력을 저장한다.
-   * 서버 확인에서 나온 항목 오류(중복 등)는 showErrors로 해당 입력에 표시한다.
-   */
-  onSave: (input: CustomerInput, showErrors: (errors: FieldErrors) => void) => void;
-  /** 취소·닫기. 저장 중에는 호출하지 않는다. */
+  onSave: (input: CustomerInput, showErrors: (errors: CustomerFieldErrors) => void) => void;
   onClose: () => void;
 };
 
 const fieldNames = ["name", "phone"] as const;
 
-type FieldErrors = Partial<Record<(typeof fieldNames)[number], string>>;
+export type CustomerFieldErrors = Partial<Record<(typeof fieldNames)[number], string>>;
 
-/** 새 고객 등록 패널. 입력 값·항목 오류는 TanStack Form이 갖고, 저장·결과 반영은 화면이 맡는다. */
 export function CustomerForm({
-  titleId,
-  nameInputRef,
+  title,
+  closeLabel,
+  submitLabel,
+  defaultValues,
   saving,
   onSave,
   onClose,
 }: CustomerFormProps) {
+  const titleId = useId();
   const form = useForm({
-    defaultValues: { name: "", phone: "" },
-    // 제출할 때만 확인한다. 오류는 해당 입력을 고치면 사라지고 다음 제출에서 다시 확인한다.
+    defaultValues,
     validators: { onSubmit: customerInputSchema },
-    // 확인은 다듬은 값을 돌려주지 않으므로 통과한 값을 다시 parse해 저장 값을 얻는다. 여기서는 실패하지 않는다.
+    // 확인 결과는 다듬은 값을 돌려주지 않아 다시 parse한다
     onSubmit: ({ value }) => onSave(customerInputSchema.parse(value), showErrors),
   });
 
-  // 서버 오류도 제출 오류로 넣어 스키마 오류와 같은 방식(입력을 고치면 사라짐)으로 다룬다.
-  const showErrors = (errors: FieldErrors) => {
+  const showErrors = (errors: CustomerFieldErrors) => {
     for (const name of fieldNames) {
       const message = errors[name];
       if (message === undefined) continue;
@@ -58,10 +55,6 @@ export function CustomerForm({
       }));
     }
   };
-
-  useEffect(() => {
-    nameInputRef.current?.focus();
-  }, [nameInputRef]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -77,11 +70,11 @@ export function CustomerForm({
     <section aria-labelledby={titleId} {...stylex.props(styles.panel)}>
       <div {...stylex.props(styles.panelHeader)}>
         <h2 id={titleId} {...stylex.props(styles.title)}>
-          새 고객 등록
+          {title}
         </h2>
         <button
           type="button"
-          aria-label="등록 닫기"
+          aria-label={closeLabel}
           disabled={saving}
           onClick={handleClose}
           {...stylex.props(styles.closeButton)}
@@ -101,7 +94,7 @@ export function CustomerForm({
           {(field) => (
             <Field label="이름" error={firstError(field.state.meta.errors)} required>
               <Input
-                ref={nameInputRef}
+                autoFocus
                 name={field.name}
                 autoComplete="off"
                 placeholder="고객 이름 입력"
@@ -145,7 +138,7 @@ export function CustomerForm({
           </Button>
           <div {...stylex.props(styles.submit)}>
             <Button type="submit" loading={saving}>
-              {saving ? "저장 중" : "고객 저장"}
+              {saving ? "저장 중" : submitLabel}
             </Button>
           </div>
         </div>
@@ -156,7 +149,7 @@ export function CustomerForm({
   );
 }
 
-/** 항목의 첫 오류 문구. 스키마 오류는 issue 객체, 서버 오류는 문자열로 들어온다. */
+// 스키마 오류는 issue 객체, 서버 오류는 문자열
 function firstError(errors: ReadonlyArray<string | { message: string } | undefined>) {
   const [error] = errors;
   return typeof error === "string" ? error : error?.message;
