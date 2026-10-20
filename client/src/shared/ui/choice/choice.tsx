@@ -4,7 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import { createContext, use, useId } from "react";
 
 import { a11yStyles, groupStyles } from "../internal/control-styles.js";
-import { colors, controls } from "../theme.stylex.js";
+import { colors, controls, radii } from "../theme.stylex.js";
 
 export type CheckboxProps = Omit<
   ComponentPropsWithRef<"input">,
@@ -199,7 +199,7 @@ const styles = stylex.create({
     width: "36px",
     height: "20px",
     margin: 0,
-    borderRadius: "999px",
+    borderRadius: radii.pill,
     backgroundColor: {
       default: colors.borderHover,
       ":checked": colors.primary,

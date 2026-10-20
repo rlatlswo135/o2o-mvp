@@ -2,6 +2,8 @@ import * as stylex from "@stylexjs/stylex";
 
 import { colors, controls } from "../theme.stylex.js";
 
+const narrow = "@media (max-width: 719px)";
+
 // Select·Textarea·금액 입력이 함께 쓰는 입력 상자 모양. Input과 같은 테두리·포커스·오류·disabled 표현을 따른다.
 export const controlStyles = stylex.create({
   base: {
@@ -14,12 +16,16 @@ export const controlStyles = stylex.create({
     borderColor: {
       default: colors.border,
       ":hover": colors.borderHover,
-      ":focus": colors.primary,
+      ":focus": colors.text,
     },
     backgroundColor: colors.surface,
     color: colors.text,
     fontFamily: "inherit",
-    fontSize: controls.fontSize,
+    // 16px 미만이면 iOS가 입력 시 화면을 확대한다
+    fontSize: {
+      default: controls.fontSize,
+      [narrow]: "16px",
+    },
     outline: "none",
     boxShadow: {
       default: "none",
@@ -33,7 +39,6 @@ export const controlStyles = stylex.create({
   },
   invalid: {
     borderColor: colors.danger,
-    backgroundColor: colors.dangerSurface,
     boxShadow: {
       default: "none",
       ":focus": `0 0 0 3px ${colors.dangerRingSoft}`,

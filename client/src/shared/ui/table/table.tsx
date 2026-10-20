@@ -94,6 +94,8 @@ export function TableCell({ align = "start", ...props }: TableCellProps) {
   );
 }
 
+const narrow = "@media (max-width: 719px)";
+
 const styles = stylex.create({
   scroller: {
     maxWidth: "100%",
@@ -115,7 +117,10 @@ const styles = stylex.create({
     width: "100%",
     borderCollapse: "collapse",
     color: colors.text,
-    fontSize: controls.fontSize,
+    fontSize: {
+      default: controls.fontSize,
+      [narrow]: "14px",
+    },
   },
   caption: {
     padding: "12px 16px 0",
@@ -132,28 +137,40 @@ const styles = stylex.create({
     },
     borderTopStyle: "solid",
     borderTopColor: colors.border,
+    // 머리글 행은 칸 바탕이 덮어 본문 행만 hover가 보인다.
+    backgroundColor: {
+      default: "transparent",
+      ":hover": "#fdf8f4",
+    },
   },
   selectedRow: {
     backgroundColor: colors.selectedSurface,
   },
   cell: {
-    height: "46px",
-    paddingInline: "16px",
+    paddingInline: {
+      default: "20px",
+      // 375px에서 아바타·이름 · 전화번호 · 수정이 한 줄에 들어가는 폭
+      [narrow]: "10px",
+    },
     textAlign: "start",
     verticalAlign: "middle",
     whiteSpace: "nowrap",
   },
   headerCell: {
-    height: "38px",
+    height: "44px",
     borderBottomWidth: "1px",
     borderBottomStyle: "solid",
     borderBottomColor: colors.border,
-    backgroundColor: colors.canvas,
+    backgroundColor: "#fbf6f1",
     color: colors.textMuted,
-    fontSize: controls.labelFontSize,
-    fontWeight: 500,
+    fontSize: controls.hintFontSize,
+    fontWeight: 600,
   },
   bodyCell: {
+    height: {
+      default: "60px",
+      [narrow]: "56px",
+    },
     fontVariantNumeric: "tabular-nums",
   },
   alignEnd: {

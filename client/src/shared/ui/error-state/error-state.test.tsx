@@ -17,6 +17,19 @@ describe("ErrorState", () => {
     );
   });
 
+  it("warning은 같은 문구·숨긴 기호를 다른 표현(띠)으로 보여준다", () => {
+    const danger = renderToStaticMarkup(<ErrorState message="최신 목록이 아니에요." />);
+    const warning = renderToStaticMarkup(
+      <ErrorState tone="warning" message="최신 목록이 아니에요." />,
+    );
+    const rootClass = (html: string) => /^<div class="([^"]*)"/.exec(html)?.[1];
+
+    expect(warning).toMatch(/<span aria-hidden="true"[^>]*>!<\/span>/);
+    expect(warning).toContain(">최신 목록이 아니에요.</p>");
+    expect(warning).not.toMatch(/role="(status|alert)"|aria-live/);
+    expect(rootClass(warning)).not.toBe(rootClass(danger));
+  });
+
   it("재시도 액션은 전달했을 때만 렌더한다", () => {
     expect(renderToStaticMarkup(<ErrorState message="실패" />)).not.toContain("<button");
     expect(

@@ -1,46 +1,64 @@
 import * as stylex from "@stylexjs/stylex";
 
-// 잉크 블루 시안 기준 의미 토큰. 테마 교체 시 값만 바꾸고 이름(의미)은 유지한다.
+// 코랄 살롱 시안 기준 의미 토큰. 테마 교체 시 값만 바꾸고 이름(의미)은 유지한다.
 export const colors = stylex.defineVars({
-  canvas: "#f2f5f9",
-  surface: "#ffffff",
-  text: "#1e2a3b",
-  textMuted: "#6b7686",
-  border: "#d3dae4",
-  borderHover: "#aab5c4",
+  canvas: "#faf5f0",
+  surface: "#fffdfa",
+  text: "#2b201c",
+  textMuted: "#76665e",
+  border: "#eadfd6",
+  borderHover: "#cdb8ab",
 
-  primary: "#2f5d9b",
-  primaryHover: "#264d82",
-  onPrimary: "#ffffff",
-  focusRing: "#2f5d9b",
-  focusRingSoft: "rgba(47, 93, 155, 0.18)",
+  primary: "#2b201c",
+  primaryHover: "#46362f",
+  onPrimary: "#fff8f2",
+  focusRing: "#2b201c",
+  focusRingSoft: "rgba(217, 88, 63, 0.22)",
 
-  neutralSurface: "#eef2f7",
-  neutralText: "#4f5a6a",
-  selectedSurface: "#edf3fb",
+  neutralSurface: "#f3ebe4",
+  neutralText: "#5e504a",
+  selectedSurface: "#f7ede6",
 
-  infoSurface: "#e8f0fa",
-  success: "#2b7449",
-  successSurface: "#e8f5ed",
-  warning: "#8a5a00",
-  warningSurface: "#fdf3e0",
+  infoSurface: "#f1eeea",
+  success: "#2e6b45",
+  successSurface: "#e7f2ea",
+  warning: "#8a5300",
+  warningSurface: "#fcf1dc",
 
-  danger: "#b9382f",
-  dangerSurface: "#fff4f2",
-  dangerBorder: "#f1c6c1",
-  dangerRingSoft: "rgba(185, 56, 47, 0.16)",
+  danger: "#b3261e",
+  dangerSurface: "#fdf0ee",
+  dangerBorder: "#f0c3bd",
+  dangerRingSoft: "rgba(179, 38, 30, 0.16)",
 
-  disabledSurface: "#eef1f5",
-  disabledText: "#a3abb7",
+  disabledSurface: "#f1eae4",
+  disabledText: "#b3a69e",
 
-  overlay: "rgba(30, 42, 59, 0.45)",
+  overlay: "rgba(43, 32, 28, 0.42)",
+
+  // 브랜드 포인트(마크·활성 메뉴·eyebrow). 버튼 채움·오류에는 쓰지 않는다.
+  accent: "#d9583f",
+  accentSurface: "#fce6de",
+  accentText: "#a5402b",
 });
 
 export const controls = stylex.defineVars({
-  height: "40px",
-  radius: "6px",
-  paddingX: "14px",
-  fontSize: "14px",
+  height: "44px",
+  radius: "12px",
+  paddingX: "16px",
+  fontSize: "15px",
   labelFontSize: "13px",
   hintFontSize: "12px",
+});
+
+export const radii = stylex.defineVars({
+  pill: "999px",
+  small: "8px",
+  card: "20px",
+  sheet: "24px",
+});
+
+export const shadows = stylex.defineVars({
+  card: "0 1px 2px rgba(43, 32, 28, 0.04), 0 8px 24px rgba(43, 32, 28, 0.05)",
+  sheet: "0 24px 64px rgba(43, 32, 28, 0.18)",
+  toast: "0 12px 32px rgba(43, 32, 28, 0.16)",
 });

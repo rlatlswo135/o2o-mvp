@@ -1,9 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
 
 import { badgeMark } from "../badge/badge.js";
-import { colors, controls } from "../theme.stylex.js";
+import { colors, controls, radii, shadows } from "../theme.stylex.js";
 
-export type NoticeTone = "success" | "warning" | "danger";
+/** info는 결과가 아닌 미리 알려둘 안내(기능 연결 전 등)에 쓴다. */
+export type NoticeTone = "info" | "success" | "warning" | "danger";
 
 export type NoticeContent = {
   tone: NoticeTone;
@@ -33,9 +34,11 @@ export function Notice({
   elevated = false,
 }: NoticeProps) {
   return (
-    <div {...stylex.props(styles.root, elevated && styles.elevated)}>
+    <div
+      {...stylex.props(styles.root, tone === "info" && styles.info, elevated && styles.elevated)}
+    >
       <span aria-hidden="true" {...stylex.props(styles.mark, markStyles[tone])}>
-        {badgeMark(tone)}
+        {tone === "info" ? "i" : badgeMark(tone)}
       </span>
       <div {...stylex.props(styles.text, elevated && styles.elevatedText)}>
         <p {...stylex.props(styles.title)}>{title}</p>
@@ -101,12 +104,17 @@ const styles = stylex.create({
     borderWidth: "1px",
     borderStyle: "solid",
     borderColor: colors.border,
-    borderRadius: "8px",
+    borderRadius: controls.radius,
     backgroundColor: colors.surface,
     color: colors.text,
   },
+  info: {
+    borderColor: colors.infoSurface,
+    backgroundColor: colors.infoSurface,
+  },
   elevated: {
-    boxShadow: "0 8px 24px rgba(30, 42, 59, 0.16)",
+    borderRadius: radii.card,
+    boxShadow: shadows.toast,
   },
   // 카드 여백·화면 가장자리 간격을 뺀 높이. 닫기 버튼은 카드 위쪽에 남는다.
   elevatedText: {
@@ -154,7 +162,7 @@ const styles = stylex.create({
     height: "28px",
     padding: 0,
     borderWidth: 0,
-    borderRadius: controls.radius,
+    borderRadius: radii.pill,
     backgroundColor: {
       default: "transparent",
       ":hover": colors.neutralSurface,
@@ -175,6 +183,10 @@ const styles = stylex.create({
 });
 
 const markStyles = stylex.create({
+  info: {
+    backgroundColor: colors.text,
+    color: colors.surface,
+  },
   success: {
     backgroundColor: colors.successSurface,
     color: colors.success,

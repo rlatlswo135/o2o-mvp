@@ -6,7 +6,9 @@ import { toast as flameToast, Toaster as FlameToaster } from "flame-ui";
 import type { NoticeTone } from "../notice/notice.js";
 
 import { badgeMark } from "../badge/badge.js";
-import { colors, controls } from "../theme.stylex.js";
+import { colors, controls, radii, shadows } from "../theme.stylex.js";
+
+type ToastTone = Exclude<NoticeTone, "info">;
 
 export type ToastOptions = {
   /** 자동으로 사라지기까지의 시간(ms). 0 이하·Infinity는 즉시 사라지므로 쓰지 않는다. */
@@ -20,13 +22,13 @@ export type ToastContent = {
 };
 
 /** 읽을 시간이 더 필요한 경고·실패는 더 오래 남긴다. */
-const toneTimeouts: Record<NoticeTone, number> = {
+const toneTimeouts: Record<ToastTone, number> = {
   success: 4000,
   warning: 6000,
   danger: 6000,
 };
 
-function toned(tone: NoticeTone) {
+function toned(tone: ToastTone) {
   return (content: ToastContent, options?: ToastOptions) =>
     flameToast(<ToastCard tone={tone} {...content} />, {
       timeout: options?.timeout ?? toneTimeouts[tone],
@@ -59,7 +61,7 @@ export function Toaster() {
   );
 }
 
-function ToastCard({ tone, title, description }: ToastContent & { tone: NoticeTone }) {
+function ToastCard({ tone, title, description }: ToastContent & { tone: ToastTone }) {
   return (
     <div {...stylex.props(styles.card)}>
       <span aria-hidden="true" {...stylex.props(styles.mark, markStyles[tone])}>
@@ -86,9 +88,9 @@ const styles = stylex.create({
     borderWidth: "1px",
     borderStyle: "solid",
     borderColor: colors.border,
-    borderRadius: "8px",
+    borderRadius: radii.card,
     backgroundColor: colors.surface,
-    boxShadow: "0 8px 24px rgba(30, 42, 59, 0.16)",
+    boxShadow: shadows.toast,
     color: colors.text,
     cursor: "pointer",
   },

@@ -1,0 +1,14 @@
+{
+  "kind": "planning_request",
+  "approved": true,
+  "consolidation_required": true,
+  "story_hash": "f77831a0f98eadd0b2dbaa1a51bc10aa54f0a993dd928b3b976e1f9af34203e6",
+  "baseline": "6d81ea890c123198bcb1c4da697fedb55da71b466451b65ea78f29b8350123f2",
+  "fingerprint": "files-v3",
+  "id": "20261020T074439339000Z-c11ff3522a14",
+  "sender": "executor",
+  "target": "planner",
+  "story": "S030",
+  "message": "스토리 완료가 기록됐다. 이 스토리에서 무슨 작업을 했는지만 records/result-draft.md에 짧게 쓴다(# 제목, ## 한 일, 필요하면 ## 바뀐 파일). 저장하면 result.md로 확정되고 나머지 스토리 파일은 지워진다. 그 뒤 사용자의 다음 스토리 요청을 기다린다. 다음 스토리를 먼저 계획하지 않는다.",
+  "compacted": true
+}

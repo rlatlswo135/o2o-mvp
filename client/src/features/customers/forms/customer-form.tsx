@@ -4,13 +4,15 @@ import type { FormEvent } from "react";
 import { customerInputSchema } from "@o2o/shared/contracts";
 import * as stylex from "@stylexjs/stylex";
 import { useForm } from "@tanstack/react-form";
-import { useId } from "react";
+import { useId, useRef } from "react";
+import { flushSync } from "react-dom";
 
 import { Button } from "@/shared/ui/button/button.tsx";
 import { Field } from "@/shared/ui/field/field.tsx";
 import { Input } from "@/shared/ui/input/input.tsx";
+import { useSheetTitleId } from "@/shared/ui/sheet/sheet.tsx";
 
-import { colors, controls } from "../../../shared/ui/theme.stylex.ts";
+import { colors, controls, radii } from "../../../shared/ui/theme.stylex.ts";
 
 export type CustomerFormValues = { name: string; phone: string };
 
@@ -37,7 +39,9 @@ export function CustomerForm({
   onSave,
   onClose,
 }: CustomerFormProps) {
-  const titleId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const generatedTitleId = useId();
+  const titleId = useSheetTitleId() ?? generatedTitleId;
   const form = useForm({
     defaultValues,
     validators: { onSubmit: customerInputSchema },
@@ -46,14 +50,19 @@ export function CustomerForm({
   });
 
   const showErrors = (errors: CustomerFieldErrors) => {
-    for (const name of fieldNames) {
-      const message = errors[name];
-      if (message === undefined) continue;
-      form.setFieldMeta(name, (meta) => ({
-        ...meta,
-        errorMap: { ...meta.errorMap, onSubmit: message },
-      }));
-    }
+    // 오류 설명이 입력에 연결된 뒤 포커스를 옮기도록 동기로 그린다
+    flushSync(() => {
+      for (const name of fieldNames) {
+        const message = errors[name];
+        if (message === undefined) continue;
+        form.setFieldMeta(name, (meta) => ({
+          ...meta,
+          errorMap: { ...meta.errorMap, onSubmit: message },
+        }));
+      }
+    });
+    const firstError = fieldNames.find((name) => errors[name] !== undefined);
+    rootRef.current?.querySelector<HTMLInputElement>(`input[name="${firstError}"]`)?.focus();
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -67,11 +76,14 @@ export function CustomerForm({
   };
 
   return (
-    <section aria-labelledby={titleId} {...stylex.props(styles.panel)}>
-      <div {...stylex.props(styles.panelHeader)}>
-        <h2 id={titleId} {...stylex.props(styles.title)}>
-          {title}
-        </h2>
+    <div ref={rootRef} {...stylex.props(styles.root)}>
+      <div {...stylex.props(styles.header)}>
+        <div {...stylex.props(styles.heading)}>
+          <p {...stylex.props(styles.eyebrow)}>CUSTOMER</p>
+          <h2 id={titleId} {...stylex.props(styles.title)}>
+            {title}
+          </h2>
+        </div>
         <button
           type="button"
           aria-label={closeLabel}
@@ -89,63 +101,67 @@ export function CustomerForm({
         onSubmit={handleSubmit}
         {...stylex.props(styles.form)}
       >
-        <p {...stylex.props(styles.eyebrow)}>CUSTOMER DETAILS</p>
-        <form.Field name="name">
-          {(field) => (
-            <Field label="이름" error={firstError(field.state.meta.errors)} required>
-              <Input
-                autoFocus
-                name={field.name}
-                autoComplete="off"
-                placeholder="고객 이름 입력"
-                value={field.state.value}
-                readOnly={saving}
-                onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
-              />
-            </Field>
-          )}
-        </form.Field>
-        <form.Field name="phone">
-          {(field) => (
-            <Field
-              label="전화번호"
-              description="예약 안내에 사용할 연락처를 입력해주세요."
-              error={firstError(field.state.meta.errors)}
-              required
-            >
-              <Input
-                name={field.name}
-                type="tel"
-                inputMode="tel"
-                autoComplete="off"
-                placeholder="010-0000-0000"
-                value={field.state.value}
-                readOnly={saving}
-                onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
-              />
-            </Field>
-          )}
-        </form.Field>
-        <p {...stylex.props(styles.info)}>
-          같은 전화번호가 이미 등록되어 있으면 저장할 때 알려드려요.
-        </p>
+        <div {...stylex.props(styles.body)}>
+          <form.Field name="name">
+            {(field) => (
+              <Field label="이름" error={firstError(field.state.meta.errors)} required>
+                <Input
+                  name={field.name}
+                  autoComplete="off"
+                  placeholder="고객 이름 입력"
+                  value={field.state.value}
+                  readOnly={saving}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                />
+              </Field>
+            )}
+          </form.Field>
+          <form.Field name="phone">
+            {(field) => (
+              <Field
+                label="전화번호"
+                description="예약 안내에 사용할 연락처를 입력해주세요."
+                error={firstError(field.state.meta.errors)}
+                required
+              >
+                <Input
+                  name={field.name}
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="off"
+                  placeholder="010-0000-0000"
+                  value={field.state.value}
+                  readOnly={saving}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                />
+              </Field>
+            )}
+          </form.Field>
+          <p {...stylex.props(styles.info)}>
+            <span aria-hidden="true" {...stylex.props(styles.infoMark)}>
+              i
+            </span>
+            같은 전화번호가 이미 등록되어 있으면 저장할 때 알려드려요.
+          </p>
+        </div>
 
-        <div {...stylex.props(styles.actions)}>
-          <Button variant="secondary" disabled={saving} onClick={handleClose}>
-            취소
-          </Button>
-          <div {...stylex.props(styles.submit)}>
-            <Button type="submit" loading={saving}>
-              {saving ? "저장 중" : submitLabel}
+        <div {...stylex.props(styles.footer)}>
+          <div {...stylex.props(styles.actions)}>
+            <Button variant="secondary" disabled={saving} onClick={handleClose}>
+              취소
             </Button>
+            <div {...stylex.props(styles.submit)}>
+              <Button type="submit" loading={saving}>
+                {saving ? "저장 중" : submitLabel}
+              </Button>
+            </div>
           </div>
+          <p {...stylex.props(styles.footnote)}>저장한 고객 정보는 서버에 보관돼요.</p>
         </div>
       </form>
-
-      <p {...stylex.props(styles.footnote)}>저장한 고객 정보는 서버에 보관돼요.</p>
-    </section>
+    </div>
   );
 }
 
@@ -155,49 +171,71 @@ function firstError(errors: ReadonlyArray<string | { message: string } | undefin
   return typeof error === "string" ? error : error?.message;
 }
 
+const narrow = "@media (max-width: 719px)";
+
 const styles = stylex.create({
-  panel: {
+  // 시트 높이 안에서 본문만 스크롤하고 머리·동작 줄은 항상 보이게 한다.
+  root: {
     display: "flex",
     flexDirection: "column",
-    gap: "16px",
-    padding: "20px",
-    borderWidth: "1px",
-    borderStyle: "solid",
-    borderColor: colors.border,
-    borderRadius: "10px",
-    backgroundColor: colors.surface,
+    flexGrow: 1,
+    minHeight: 0,
   },
-  panelHeader: {
+  header: {
     display: "flex",
-    alignItems: "center",
+    flexShrink: 0,
+    alignItems: "flex-start",
     justifyContent: "space-between",
     gap: "12px",
+    padding: {
+      default: "24px 20px 8px 24px",
+      [narrow]: "12px 12px 4px 16px",
+    },
+  },
+  heading: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    minWidth: 0,
+  },
+  eyebrow: {
+    margin: 0,
+    color: colors.accent,
+    fontSize: "11px",
+    fontWeight: 700,
+    lineHeight: "16px",
+    letterSpacing: "0.14em",
   },
   title: {
     margin: 0,
-    fontSize: "17px",
+    fontSize: "18px",
+    fontWeight: 700,
+    lineHeight: "26px",
   },
   closeButton: {
     display: "inline-flex",
+    flexShrink: 0,
     alignItems: "center",
     justifyContent: "center",
-    width: controls.height,
-    height: controls.height,
+    width: "40px",
+    height: "40px",
     padding: 0,
     borderWidth: 0,
-    borderRadius: controls.radius,
+    borderRadius: "50%",
     backgroundColor: {
       default: "transparent",
       ":hover:not(:disabled)": colors.neutralSurface,
     },
     color: {
       default: colors.textMuted,
+      ":hover:not(:disabled)": colors.text,
       ":disabled": colors.disabledText,
     },
     cursor: {
       default: "pointer",
       ":disabled": "not-allowed",
     },
+    fontFamily: "inherit",
     fontSize: "22px",
     lineHeight: 1,
     outlineStyle: {
@@ -205,27 +243,65 @@ const styles = stylex.create({
       ":focus-visible": "solid",
     },
     outlineWidth: "2px",
+    outlineOffset: "2px",
     outlineColor: colors.focusRing,
   },
   form: {
     display: "flex",
     flexDirection: "column",
-    gap: "16px",
+    flexGrow: 1,
+    minHeight: 0,
   },
-  eyebrow: {
-    margin: 0,
-    color: colors.textMuted,
-    fontSize: "11px",
-    fontWeight: 700,
-    letterSpacing: "0.08em",
+  body: {
+    display: "flex",
+    flexDirection: "column",
+    flexGrow: 1,
+    gap: "18px",
+    minHeight: 0,
+    padding: {
+      default: "16px 24px 24px",
+      [narrow]: "12px 16px 16px",
+    },
+    overflowY: "auto",
+    overscrollBehavior: "contain",
   },
   info: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "10px",
     margin: 0,
     padding: "12px 14px",
     borderRadius: controls.radius,
     backgroundColor: colors.infoSurface,
     color: colors.text,
+    fontSize: "13px",
+    lineHeight: "20px",
+  },
+  infoMark: {
+    display: "inline-flex",
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "20px",
+    height: "20px",
+    borderRadius: radii.pill,
+    backgroundColor: colors.text,
+    color: colors.surface,
     fontSize: controls.hintFontSize,
+    fontWeight: 800,
+  },
+  footer: {
+    display: "flex",
+    flexShrink: 0,
+    flexDirection: "column",
+    gap: "12px",
+    padding: {
+      default: "16px 24px 24px",
+      [narrow]: "12px 16px max(16px, env(safe-area-inset-bottom))",
+    },
+    borderTopWidth: "1px",
+    borderTopStyle: "solid",
+    borderTopColor: colors.border,
   },
   actions: {
     display: "flex",
@@ -240,5 +316,6 @@ const styles = stylex.create({
     margin: 0,
     color: colors.textMuted,
     fontSize: controls.hintFontSize,
+    lineHeight: "18px",
   },
 });

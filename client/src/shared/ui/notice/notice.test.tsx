@@ -58,6 +58,16 @@ describe("Notice", () => {
     ).toBe("결과 알림 닫기");
   });
 
+  it("info 안내는 i 기호를 숨긴 채 제목·설명으로 전달한다", () => {
+    const html = renderToStaticMarkup(
+      <Notice tone="info" title="인증 연결 예정" description="아직 연결되지 않았어요." />,
+    );
+
+    expect(/<span aria-hidden="true"[^>]*>(.)<\/span>/.exec(html)?.[1]).toBe("i");
+    expect(html).toContain(">인증 연결 예정</p>");
+    expect(html).not.toMatch(/role="(status|alert)"|aria-live/);
+  });
+
   it("설명 없이 제목만 보여줄 수 있다", () => {
     expect(renderToStaticMarkup(<Notice tone="warning" title="제목만" />)).not.toMatch(
       /<p[^>]*><\/p>/,

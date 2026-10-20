@@ -59,7 +59,9 @@ export function Field({ label, description, error, required = false, id, childre
       )}
       {error && (
         <p id={errorId} {...stylex.props(styles.message, styles.error)}>
-          <span aria-hidden="true">! </span>
+          <span aria-hidden="true" {...stylex.props(styles.errorMark)}>
+            !
+          </span>
           {error}
         </p>
       )}
@@ -81,21 +83,41 @@ const styles = stylex.create({
   },
   label: {
     display: "inline-flex",
-    gap: "4px",
+    gap: "2px",
     color: colors.text,
     fontSize: controls.labelFontSize,
     fontWeight: 600,
+    lineHeight: "20px",
   },
   requiredMark: {
-    color: colors.textMuted,
+    color: colors.accentText,
   },
   message: {
     margin: 0,
     color: colors.textMuted,
     fontSize: controls.hintFontSize,
-    lineHeight: 1.4,
+    lineHeight: "18px",
   },
   error: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "6px",
     color: colors.danger,
+    fontWeight: 500,
+  },
+  errorMark: {
+    display: "inline-flex",
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "14px",
+    height: "14px",
+    marginTop: "2px",
+    borderRadius: "50%",
+    backgroundColor: colors.danger,
+    color: "#fff",
+    fontSize: "10px",
+    fontWeight: 800,
+    lineHeight: 1,
   },
 });

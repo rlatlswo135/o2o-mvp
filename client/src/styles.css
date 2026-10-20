@@ -8,6 +8,16 @@ body,
   min-height: 100%;
 }
 
+/* 배경·글자색은 theme.stylex.ts의 colors.canvas / colors.text와 같은 값이다 */
 body {
   margin: 0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR",
+    "Segoe UI", system-ui, sans-serif;
+  background-color: #faf5f0;
+  color: #2b201c;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
 }

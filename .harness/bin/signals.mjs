@@ -1,0 +1,97 @@
+import { createHash } from 'node:crypto';
+
+// Display state only. Sources: pane liveness, hook/extension live state, the latest recorded reply, workflow hints.
+export const phases = { planning: '계획', implementing: '구현 중', implementation_done: '구현 완료', reviewing: '독립 검증', review_ready: '결과 준비', review_decision: '리뷰 반영', fixing: '수정 중', done: '완료', blocked: '진행 중단' };
+export const actions = { plan: '계획·범위 확인', plan_next: '완료 정리', await_story: '다음 스토리 대기', implement: '승인 범위 구현', implementation_choices: '종합 검토 요청', review: '코드 검토', review_choices: '검토 결과', review_decision: '리뷰 반영', completion_choices: '재리뷰·완료', wait: '인계 대기', brief: '결과 브리핑', assist: '보조 요청', blocked: '상태 확인 필요', done: '완료', select_story: '작업 선택' };
+export const BADGES = { stop: '멈춤 확인 필요', choice: '선택 필요', reply: '응답 확인 필요' };
+const SLEEP = 300000;
+
+// One alert per role. Priority: stopped > waiting for a choice > unread reply.
+export function roleAlert(row, now = Date.now()) {
+  const presence = row.presence, alert = (kind, since) => ({ kind, badge: BADGES[kind], since });
+  if (!row.live) return alert('stop');
+  if (row.hint === 'blocked') return alert('stop');
+  if (presence?.state === 'failed') return alert('stop', presence.at);
+  if (presence?.state === 'working' && row.quiet) return alert('stop', presence.at);
+  if (presence?.state === 'native') return alert('choice', presence.at);
+  // An automatic step needs no choice; a role resting there past the hand-off between turns has stalled.
+  if (row.hint === 'auto' && row.stalled) return alert('stop');
+  if (presence?.state === 'idle' && Number.isFinite(row.lastReply) && row.lastReply > (row.seen ?? 0)) return alert('reply', row.lastReply);
+  return null;
+}
+
+export function roleStatus(row, now = Date.now()) {
+  const presence = row.presence;
+  if (!row.live) return 'CLI 없음';
+  if (presence?.state === 'working') return presence.tool ? `작업 중 · ${presence.tool}` : '작업 중';
+  if (presence?.state === 'native') return '선택 창 열림';
+  if (presence?.state === 'failed') return '응답 오류';
+  if (presence?.state === 'idle' && now - presence.at > SLEEP) return `휴식 · ${elapsed(presence.at, now)}`;
+  return actions[row.state] ?? '대기';
+}
+
+// Character pose: decoration only, never evidence that a model is generating.
+export function pose(row, alert, now = Date.now()) {
+  const presence = row.presence;
+  if (!row.live) return 'offline';
+  if (presence?.state === 'failed') return 'error';
+  if (presence?.state === 'working' && row.quiet) return 'quiet';
+  if (alert) return 'alert';
+  if (presence?.state === 'working') return 'working';
+  if (presence?.state === 'idle' && now - presence.at > SLEEP) return 'sleeping';
+  return 'idle';
+}
+
+const STAGE = { planning: '계획', implementing: '구현', implementation_done: '구현', fixing: '구현', reviewing: '리뷰', review_ready: '리뷰', review_decision: '리뷰' };
+export function pipeline({ story, phase, roles = [], designPending = false, qaPending = false, blocked = false, started = false }) {
+  if (!story) return null;
+  const names = ['계획', ...(roles.includes('designer') ? ['디자인'] : []), '구현', '리뷰', ...(roles.includes('qa') ? ['QA'] : [])];
+  if (phase === 'done') return names.map(name => ({ name, state: 'done' }));
+  let current = phase === 'blocked' ? (started ? '구현' : '계획') : STAGE[phase] ?? '계획';
+  if (current === '계획' && designPending && names.includes('디자인')) current = '디자인';
+  const index = names.indexOf(current);
+  return names.map((name, at) => ({ name, state: at < index ? 'done' : at === index ? (blocked ? 'blocked' : 'current') : name === 'QA' && qaPending ? 'current' : 'next' }));
+}
+
+export function elapsed(since, now = Date.now()) {
+  if (!Number.isFinite(since)) return '';
+  const seconds = Math.max(0, Math.floor((now - since) / 1000));
+  return seconds < 60 ? `${seconds}초` : seconds < 3600 ? `${Math.floor(seconds / 60)}분` : seconds < 86400 ? `${Math.floor(seconds / 3600)}시간` : `${Math.floor(seconds / 86400)}일`;
+}
+
+// A working pane whose visible screen stays byte-identical is shown as uncertain (Escape interrupts fire no hook).
+// Change detection only: the captured text is hashed, never parsed.
+// How long each role has rested at the same automatic step, as seen by this console. A short rest is the gap
+// between a finished turn and the next one (a background reply waking the executor); only a longer one is a stall.
+export function stallTracker({ window = 60000, now = () => Date.now() } = {}) {
+  const seen = new Map();
+  return rows => {
+    const stalled = {};
+    for (const { role, key } of rows) {
+      if (!key) { seen.delete(role); continue; }
+      const time = now();
+      if (seen.get(role)?.key !== key) seen.set(role, { key, since: time });
+      stalled[role] = time - seen.get(role).since >= window;
+    }
+    return stalled;
+  };
+}
+
+export function quietTracker({ capture, window = 30000, interval = 2000, now = () => Date.now() }) {
+  const seen = new Map();
+  return rows => {
+    const quiet = {};
+    for (const { role, working } of rows) {
+      if (!working) { seen.delete(role); continue; }
+      const entry = seen.get(role), time = now();
+      if (!entry || time - entry.checked >= interval) {
+        let digest;
+        try { digest = createHash('sha256').update(capture(role)).digest('hex'); } catch { continue; }
+        if (!entry || entry.digest !== digest) seen.set(role, { digest, since: time, checked: time });
+        else entry.checked = time;
+      }
+      quiet[role] = time - seen.get(role).since >= window;
+    }
+    return quiet;
+  };
+}

@@ -24,16 +24,16 @@ export function CustomerList({ toolbar, onEdit, editingId }: CustomerListProps) 
 
   const columns: ReadonlyArray<DataTableColumn<Customer>> = [
     {
-      key: "number",
-      header: "No.",
-      cell: (_, index) => (
-        <span {...stylex.props(styles.number)}>{String(index + 1).padStart(2, "0")}</span>
-      ),
-    },
-    {
       key: "name",
       header: "이름",
-      cell: (customer) => <span {...stylex.props(styles.name)}>{customer.name}</span>,
+      cell: (customer) => (
+        <span {...stylex.props(styles.who)}>
+          <span aria-hidden="true" {...stylex.props(styles.avatar, avatarTones[customer.id % 3])}>
+            {customer.name.charAt(0)}
+          </span>
+          <span {...stylex.props(styles.name)}>{customer.name}</span>
+        </span>
+      ),
     },
     {
       key: "phone",
@@ -48,19 +48,18 @@ export function CustomerList({ toolbar, onEdit, editingId }: CustomerListProps) 
             key: "actions",
             header: "관리",
             align: "end",
-            cell: (customer: Customer) => {
-              const editing = customer.id === editingId;
-              return (
-                <Button
-                  variant={editing ? "primary" : "secondary"}
-                  aria-label={`${customer.name} 고객 정보 수정`}
-                  aria-expanded={editing}
-                  onClick={(event) => onEdit(customer, event.currentTarget)}
-                >
-                  수정
-                </Button>
-              );
-            },
+            cell: (customer: Customer) => (
+              <Button
+                variant="secondary"
+                size="small"
+                aria-label={`${customer.name} 고객 정보 수정`}
+                aria-haspopup="dialog"
+                aria-expanded={customer.id === editingId}
+                onClick={(event) => onEdit(customer, event.currentTarget)}
+              >
+                수정
+              </Button>
+            ),
           } satisfies DataTableColumn<Customer>,
         ]
       : []),
@@ -68,14 +67,14 @@ export function CustomerList({ toolbar, onEdit, editingId }: CustomerListProps) 
 
   return (
     <DataTable
-      title="전체 고객"
+      title="고객 목록"
+      // 지금 API는 전체 목록을 주므로 받은 행 수가 전체 고객 수다
+      countLabel={(count) => `전체 ${count.toLocaleString("ko-KR")}명`}
       query={query}
       columns={columns}
       rowKey={(customer) => customer.id}
+      selectedKey={editingId}
       toolbar={toolbar}
-      footer={(customers) => (
-        <p {...stylex.props(styles.footer)}>등록된 고객 {customers.length}명</p>
-      )}
       loadingLabel="고객 목록을 불러오는 중이에요."
       errorMessage="고객 목록을 불러오지 못했어요. 고객이 없다는 뜻은 아니에요."
       empty={{
@@ -86,38 +85,57 @@ export function CustomerList({ toolbar, onEdit, editingId }: CustomerListProps) 
   );
 }
 
-export function CustomerCount() {
-  const { data } = useQuery(customerQueries.list());
-  if (data === undefined) return null;
-  return <span {...stylex.props(styles.count)}>{data.length}명</span>;
-}
+const narrow = "@media (max-width: 719px)";
 
 const styles = stylex.create({
-  count: {
-    paddingBlock: "2px",
-    paddingInline: "10px",
-    borderRadius: "999px",
-    backgroundColor: colors.selectedSurface,
-    color: colors.primary,
+  who: {
+    display: "flex",
+    alignItems: "center",
+    gap: {
+      default: "12px",
+      [narrow]: "10px",
+    },
+  },
+  avatar: {
+    display: "inline-flex",
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "32px",
+    height: "32px",
+    borderRadius: "50%",
     fontSize: "13px",
-    fontWeight: 600,
+    fontWeight: 700,
   },
-  number: {
-    color: colors.textMuted,
-    fontSize: "12px",
-    fontVariantNumeric: "tabular-nums",
-  },
+  // 표 칸의 nowrap을 풀고, 공백 없는 긴 이름도 줄바꿈해 수정 버튼을 밀어내지 않게 한다.
+  // min-width는 anywhere가 세 글자 이름까지 끊지 않게 막는다
   name: {
+    minWidth: "3em",
     fontWeight: 600,
+    whiteSpace: "normal",
+    wordBreak: "keep-all",
     overflowWrap: "anywhere",
   },
   phone: {
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
   },
-  footer: {
-    margin: 0,
-    color: colors.textMuted,
-    fontSize: "12px",
+});
+
+// 의미 없는 장식 색. id로 고르게 돌린다.
+const avatarStyles = stylex.create({
+  coral: {
+    backgroundColor: colors.accentSurface,
+    color: colors.accentText,
+  },
+  sand: {
+    backgroundColor: "#f1e7dc",
+    color: "#7a5a3c",
+  },
+  sage: {
+    backgroundColor: "#e9eee4",
+    color: "#4e6544",
   },
 });
+
+const avatarTones = [avatarStyles.coral, avatarStyles.sand, avatarStyles.sage];

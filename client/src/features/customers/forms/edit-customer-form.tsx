@@ -60,7 +60,7 @@ export function EditCustomerForm({ customer, onClose }: EditCustomerFormProps) {
     <CustomerForm
       title="고객 정보 수정"
       closeLabel="수정 닫기"
-      submitLabel="수정 저장"
+      submitLabel="변경 저장"
       defaultValues={{ name: customer.name, phone: formatPhone(customer.phone) }}
       saving={saving}
       onSave={handleSave}

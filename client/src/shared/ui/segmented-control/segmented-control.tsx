@@ -4,7 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useId } from "react";
 
 import { a11yStyles, groupStyles } from "../internal/control-styles.js";
-import { colors, controls } from "../theme.stylex.js";
+import { colors, controls, radii } from "../theme.stylex.js";
 
 export type SegmentedOption = {
   value: string;
@@ -110,7 +110,7 @@ const styles = stylex.create({
     minWidth: "56px",
     minHeight: "32px",
     paddingInline: "16px",
-    borderRadius: "4px",
+    borderRadius: radii.small,
     color: {
       default: colors.textMuted,
       [stylex.when.siblingBefore(":checked")]: colors.primary,
@@ -121,7 +121,7 @@ const styles = stylex.create({
     },
     boxShadow: {
       default: "none",
-      [stylex.when.siblingBefore(":checked")]: "0 1px 2px rgba(30, 42, 59, 0.12)",
+      [stylex.when.siblingBefore(":checked")]: "0 1px 2px rgba(43, 32, 28, 0.12)",
     },
     fontSize: controls.fontSize,
     fontWeight: {

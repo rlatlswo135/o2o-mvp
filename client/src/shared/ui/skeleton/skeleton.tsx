@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 
-import { colors, controls } from "../theme.stylex.js";
+import { colors, controls, radii } from "../theme.stylex.js";
 
 export type SkeletonProps = {
   /** 보이는 로딩 문구. 움직임 없이도 불러오는 중임을 알린다. */
@@ -18,7 +18,7 @@ export function Skeleton({ label, rows = 3 }: SkeletonProps) {
     <div aria-busy="true" {...stylex.props(styles.root)}>
       <p {...stylex.props(styles.label)}>{label}</p>
       <div aria-hidden="true" {...stylex.props(styles.decoration)}>
-        <span {...stylex.props(styles.bar, styles.heading)} />
+        <span {...stylex.props(styles.heading)} />
         {Array.from({ length: rows }, (_, index) => (
           <span key={index} data-skeleton-row {...stylex.props(styles.row)}>
             <span {...stylex.props(styles.circle)} />
@@ -35,50 +35,59 @@ const styles = stylex.create({
   root: {
     display: "flex",
     flexDirection: "column",
-    gap: "12px",
-    padding: "16px",
-    borderWidth: "1px",
-    borderStyle: "solid",
-    borderColor: colors.border,
-    borderRadius: "8px",
+    gap: "8px",
   },
   label: {
     margin: 0,
     color: colors.textMuted,
     fontSize: controls.hintFontSize,
+    lineHeight: "18px",
   },
   decoration: {
     display: "flex",
     flexDirection: "column",
-    gap: "14px",
-  },
-  bar: {
-    display: "block",
-    height: "10px",
-    borderRadius: "5px",
-    backgroundColor: colors.neutralSurface,
+    overflow: "hidden",
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: colors.border,
+    borderRadius: controls.radius,
   },
   heading: {
-    width: "30%",
+    display: "block",
+    height: "44px",
+    backgroundColor: "#fbf6f1",
   },
   row: {
     display: "flex",
     alignItems: "center",
     gap: "12px",
+    height: "60px",
+    paddingInline: "20px",
+    borderTopWidth: "1px",
+    borderTopStyle: "solid",
+    borderTopColor: colors.border,
+  },
+  bar: {
+    display: "block",
+    height: "14px",
+    borderRadius: radii.small,
+    backgroundColor: colors.neutralSurface,
   },
   circle: {
     flexShrink: 0,
-    width: "24px",
-    height: "24px",
+    width: "32px",
+    height: "32px",
     borderRadius: "50%",
     backgroundColor: colors.neutralSurface,
   },
   line: {
     flexGrow: 1,
-    maxWidth: "40%",
+    maxWidth: "112px",
   },
   short: {
-    width: "60px",
+    width: "56px",
+    height: "28px",
     marginInlineStart: "auto",
+    borderRadius: radii.pill,
   },
 });

@@ -2,17 +2,21 @@ import type { ComponentPropsWithRef, MouseEvent } from "react";
 
 import * as stylex from "@stylexjs/stylex";
 
-import { colors, controls } from "../theme.stylex.js";
+import { colors, controls, radii } from "../theme.stylex.js";
 
 type ButtonVariant = "primary" | "secondary" | "danger";
+type ButtonSize = "medium" | "small";
 
 export type ButtonProps = Omit<ComponentPropsWithRef<"button">, "className" | "style"> & {
   variant?: ButtonVariant;
+  /** small은 표 행·상태 박스 안처럼 좁은 자리의 보조 동작에 쓴다. */
+  size?: ButtonSize;
   loading?: boolean;
 };
 
 export function Button({
   variant = "primary",
+  size = "medium",
   loading = false,
   disabled = false,
   type = "button",
@@ -38,6 +42,7 @@ export function Button({
       onClick={handleClick}
       {...stylex.props(
         styles.base,
+        size === "small" && styles.small,
         variantStyles[variant],
         loading && styles.loading,
         disabled && styles.disabled,
@@ -60,10 +65,10 @@ const styles = stylex.create({
     justifyContent: "center",
     gap: "8px",
     minHeight: controls.height,
-    paddingInline: "18px",
+    paddingInline: "20px",
     borderWidth: "1px",
     borderStyle: "solid",
-    borderRadius: controls.radius,
+    borderRadius: radii.pill,
     fontFamily: "inherit",
     fontSize: controls.fontSize,
     fontWeight: 600,
@@ -79,6 +84,11 @@ const styles = stylex.create({
     outlineWidth: "2px",
     outlineOffset: "2px",
     outlineColor: colors.focusRing,
+  },
+  small: {
+    minHeight: "36px",
+    paddingInline: "14px",
+    fontSize: "14px",
   },
   loading: {
     cursor: "progress",
@@ -121,7 +131,7 @@ const variantStyles = stylex.create({
       default: colors.surface,
       ":hover": colors.neutralSurface,
     },
-    borderColor: colors.border,
+    borderColor: colors.borderHover,
     color: colors.text,
   },
   danger: {

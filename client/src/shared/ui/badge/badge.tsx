@@ -2,7 +2,7 @@ import type { ComponentPropsWithRef } from "react";
 
 import * as stylex from "@stylexjs/stylex";
 
-import { colors, controls } from "../theme.stylex.js";
+import { colors, controls, radii } from "../theme.stylex.js";
 
 export type BadgeTone = "info" | "success" | "neutral" | "warning" | "danger";
 
@@ -44,7 +44,7 @@ const styles = stylex.create({
     gap: "4px",
     minHeight: "22px",
     paddingInline: "8px",
-    borderRadius: "4px",
+    borderRadius: radii.small,
     fontSize: controls.hintFontSize,
     fontWeight: 600,
     lineHeight: 1.2,

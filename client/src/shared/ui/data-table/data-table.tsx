@@ -6,6 +6,7 @@ import { useId, useRef } from "react";
 import { Button } from "../button/button.js";
 import { EmptyState } from "../empty-state/empty-state.js";
 import { ErrorState } from "../error-state/error-state.js";
+import { a11yStyles } from "../internal/control-styles.js";
 import { Skeleton } from "../skeleton/skeleton.js";
 import {
   Table,
@@ -15,7 +16,7 @@ import {
   TableHeaderCell,
   TableRow,
 } from "../table/table.js";
-import { colors } from "../theme.stylex.js";
+import { colors, radii } from "../theme.stylex.js";
 
 /**
  * 목록 조회 상태. TanStack Query의 `useQuery` 결과가 그대로 맞는 모양이며,
@@ -59,12 +60,16 @@ export type DataTableColumn<T> = {
 };
 
 export type DataTableProps<T> = {
-  /** 영역 제목. 표 이름(caption)으로도 쓴다. */
+  /** 섹션·표의 보조기기용 이름. 화면에는 보이지 않는다. */
   title: string;
+  /** 받은 행 수를 머리 줄 왼쪽에 보일 문구로 바꾼다. 단위·문구는 소비자가 정한다. */
+  countLabel?: ((count: number) => string) | undefined;
   query: DataTableQuery<T>;
   columns: ReadonlyArray<DataTableColumn<T>>;
   rowKey: (row: T) => string | number;
-  /** 제목 오른쪽 슬롯. 등록 버튼 등 목록에 대한 동작을 둔다. */
+  /** 강조할 행의 rowKey. 수정 중인 행 등 화면이 가리키는 행을 표시만 한다. */
+  selectedKey?: string | number | undefined;
+  /** 머리 줄 오른쪽 슬롯. 등록 버튼 등 목록에 대한 동작을 둔다. */
   toolbar?: ReactNode;
   /** 표 아래 슬롯. 받은 목록으로 합계 등을 그린다. */
   footer?: ((rows: ReadonlyArray<T>) => ReactNode) | undefined;
@@ -82,9 +87,11 @@ export type DataTableProps<T> = {
  */
 export function DataTable<T>({
   title,
+  countLabel,
   query,
   columns,
   rowKey,
+  selectedKey,
   toolbar,
   footer,
   loadingLabel,
@@ -95,6 +102,9 @@ export function DataTable<T>({
   const titleId = useId();
   const sectionRef = useRef<HTMLElement>(null);
   const state = resolveTableState(query);
+  // 첫 로딩·첫 실패에는 받은 목록이 없어 건수를 숨긴다
+  const count = state.kind === "loaded" ? countLabel?.(state.rows.length) : undefined;
+  const hasToolbar = Boolean(toolbar);
 
   // 다시 시도 버튼이 사라지므로 목록 영역으로 포커스를 옮긴다.
   const handleRetry = () => {
@@ -103,7 +113,7 @@ export function DataTable<T>({
   };
 
   const retryButton = (
-    <Button variant="secondary" onClick={handleRetry}>
+    <Button variant="secondary" size="small" onClick={handleRetry}>
       다시 시도
     </Button>
   );
@@ -115,17 +125,22 @@ export function DataTable<T>({
       tabIndex={-1}
       {...stylex.props(styles.section)}
     >
-      <div {...stylex.props(styles.header)}>
-        <h2 id={titleId} {...stylex.props(styles.title)}>
-          {title}
-        </h2>
-        {toolbar}
-      </div>
+      <h2 id={titleId} {...stylex.props(a11yStyles.visuallyHidden)}>
+        {title}
+      </h2>
+      {(count !== undefined || hasToolbar) && (
+        <div {...stylex.props(styles.header)}>
+          {count !== undefined && <p {...stylex.props(styles.count)}>{count}</p>}
+          {hasToolbar && <div {...stylex.props(styles.toolbar)}>{toolbar}</div>}
+        </div>
+      )}
 
-      {state.kind === "loading" && <Skeleton label={loadingLabel} rows={5} />}
+      {state.kind === "loading" && <Skeleton label={loadingLabel} rows={4} />}
       {state.kind === "failed" && <ErrorState message={errorMessage}>{retryButton}</ErrorState>}
       {state.kind === "loaded" && state.refreshFailed && (
-        <ErrorState message={refreshErrorMessage}>{retryButton}</ErrorState>
+        <ErrorState tone="warning" message={refreshErrorMessage}>
+          {retryButton}
+        </ErrorState>
       )}
       {state.kind === "loaded" && state.rows.length === 0 && (
         <EmptyState title={empty.title} description={empty.description}>
@@ -146,7 +161,10 @@ export function DataTable<T>({
             </TableHead>
             <TableBody>
               {state.rows.map((row, index) => (
-                <TableRow key={rowKey(row)}>
+                <TableRow
+                  key={rowKey(row)}
+                  selected={selectedKey !== undefined && rowKey(row) === selectedKey}
+                >
                   {columns.map((column) => (
                     <TableCell key={column.key} align={column.align}>
                       {column.cell(row, index)}
@@ -167,8 +185,8 @@ const styles = stylex.create({
   section: {
     display: "flex",
     flexDirection: "column",
-    gap: "12px",
-    borderRadius: "8px",
+    gap: "16px",
+    borderRadius: radii.card,
     outlineStyle: {
       default: "none",
       ":focus-visible": "solid",
@@ -183,19 +201,22 @@ const styles = stylex.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: "8px 12px",
-    paddingBottom: "10px",
-    borderBottomWidth: "1px",
-    borderBottomStyle: "solid",
-    borderBottomColor: colors.border,
   },
-  title: {
+  count: {
     margin: 0,
-    color: colors.primary,
-    fontSize: "14px",
+    color: colors.text,
+    fontSize: "18px",
+    fontWeight: 700,
+    lineHeight: "26px",
+    fontVariantNumeric: "tabular-nums",
+  },
+  // 건수가 숨겨져도 동작은 오른쪽에 둔다
+  toolbar: {
+    marginInlineStart: "auto",
   },
   body: {
     display: "flex",
     flexDirection: "column",
-    gap: "8px",
+    gap: "12px",
   },
 });

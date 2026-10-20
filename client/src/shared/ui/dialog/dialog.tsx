@@ -4,7 +4,8 @@ import * as stylex from "@stylexjs/stylex";
 import { Dialog as FlameDialog } from "flame-ui";
 import { useEffect, useId, useRef } from "react";
 
-import { colors, controls } from "../theme.stylex.js";
+import { lockPageScroll } from "../internal/scroll-lock.js";
+import { colors, controls, radii, shadows } from "../theme.stylex.js";
 
 export type DialogProps = {
   /** 열린 직후 포커스를 받을 요소. 생략하면 브라우저 기본(첫 포커스 가능 요소)을 따른다. */
@@ -53,15 +54,6 @@ export function Dialog({ initialFocusRef, onOpen, onClose, children }: DialogPro
       {children}
     </FlameDialog>
   );
-}
-
-function lockPageScroll() {
-  const root = document.documentElement;
-  const previous = root.style.overflow;
-  root.style.overflow = "hidden";
-  return () => {
-    root.style.overflow = previous;
-  };
 }
 
 /** 단일 요소에 열기 동작과 aria-haspopup을 붙인다. 함수 children이면 `{ open }`을 받는다. */
@@ -160,10 +152,10 @@ const styles = stylex.create({
     borderWidth: "1px",
     borderStyle: "solid",
     borderColor: colors.border,
-    borderRadius: "8px",
+    borderRadius: radii.card,
     backgroundColor: colors.surface,
     color: colors.text,
-    boxShadow: "0 12px 32px rgba(30, 42, 59, 0.18)",
+    boxShadow: shadows.sheet,
     "::backdrop": {
       backgroundColor: colors.overlay,
     },
@@ -191,7 +183,7 @@ const styles = stylex.create({
     borderWidth: "1px",
     borderStyle: "solid",
     borderColor: colors.dangerBorder,
-    borderRadius: controls.radius,
+    borderRadius: radii.small,
     backgroundColor: colors.dangerSurface,
     color: colors.danger,
     fontWeight: 700,
@@ -209,11 +201,11 @@ const styles = stylex.create({
     flexShrink: 0,
     alignItems: "center",
     justifyContent: "center",
-    width: "32px",
-    height: "32px",
+    width: "40px",
+    height: "40px",
     padding: 0,
     borderWidth: 0,
-    borderRadius: controls.radius,
+    borderRadius: radii.pill,
     backgroundColor: {
       default: "transparent",
       ":hover": colors.neutralSurface,

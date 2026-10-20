@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import * as stylex from "@stylexjs/stylex";
 
-import { colors, controls } from "../theme.stylex.js";
+import { colors, radii } from "../theme.stylex.js";
 
 export type EmptyStateProps = {
   title: string;
@@ -16,6 +16,9 @@ export type EmptyStateProps = {
 export function EmptyState({ title, description, children }: EmptyStateProps) {
   return (
     <div {...stylex.props(styles.root)}>
+      <span aria-hidden="true" {...stylex.props(styles.icon)}>
+        <span {...stylex.props(styles.drop)} />
+      </span>
       <p {...stylex.props(styles.title)}>{title}</p>
       <p {...stylex.props(styles.description)}>{description}</p>
       {children && <div {...stylex.props(styles.actions)}>{children}</div>}
@@ -28,25 +31,41 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    gap: "6px",
-    padding: "32px 20px",
-    borderWidth: "1px",
-    borderStyle: "dashed",
-    borderColor: colors.border,
-    borderRadius: "8px",
+    gap: "8px",
+    padding: "48px 24px",
+    borderRadius: radii.card,
     textAlign: "center",
+  },
+  // 매니큐어 방울 장식
+  icon: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "56px",
+    height: "56px",
+    marginBottom: "8px",
+    borderRadius: "50%",
+    backgroundColor: colors.accentSurface,
+  },
+  drop: {
+    width: "14px",
+    height: "24px",
+    borderRadius: "7px 7px 7px 7px / 10px 10px 7px 7px",
+    backgroundColor: colors.accent,
   },
   title: {
     margin: 0,
     color: colors.text,
-    fontSize: controls.fontSize,
-    fontWeight: 600,
+    fontSize: "16px",
+    fontWeight: 700,
+    lineHeight: "24px",
     overflowWrap: "anywhere",
   },
   description: {
     margin: 0,
     color: colors.textMuted,
-    fontSize: controls.hintFontSize,
+    fontSize: "13px",
+    lineHeight: "20px",
     overflowWrap: "anywhere",
   },
   actions: {
@@ -54,6 +73,6 @@ const styles = stylex.create({
     flexWrap: "wrap",
     justifyContent: "center",
     gap: "8px",
-    marginTop: "10px",
+    marginTop: "8px",
   },
 });

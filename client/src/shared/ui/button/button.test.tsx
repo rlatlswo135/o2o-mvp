@@ -16,6 +16,14 @@ describe("Button", () => {
     expect(html).not.toMatch(/\sdisabled=""/);
   });
 
+  it("small은 스타일만 바꾸고 기본 크기는 medium이다", () => {
+    const className = (html: string) => /class="([^"]*)"/.exec(html)?.[1];
+    const medium = className(renderToStaticMarkup(<Button>수정</Button>));
+
+    expect(className(renderToStaticMarkup(<Button size="medium">수정</Button>))).toBe(medium);
+    expect(className(renderToStaticMarkup(<Button size="small">수정</Button>))).not.toBe(medium);
+  });
+
   it("loading이 아니면 처리 중 속성과 표시를 출력하지 않는다", () => {
     const html = renderToStaticMarkup(<Button>저장</Button>);
 

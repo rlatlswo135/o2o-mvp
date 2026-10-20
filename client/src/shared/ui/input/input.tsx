@@ -34,6 +34,8 @@ export function Input({
   );
 }
 
+const narrow = "@media (max-width: 719px)";
+
 const styles = stylex.create({
   base: {
     width: "100%",
@@ -45,12 +47,22 @@ const styles = stylex.create({
     borderColor: {
       default: colors.border,
       ":hover": colors.borderHover,
-      ":focus": colors.primary,
+      ":focus": colors.text,
     },
-    backgroundColor: colors.surface,
-    color: colors.text,
+    backgroundColor: {
+      default: colors.surface,
+      ":read-only": "#fbf7f3",
+    },
+    color: {
+      default: colors.text,
+      ":read-only": colors.textMuted,
+    },
     fontFamily: "inherit",
-    fontSize: controls.fontSize,
+    // 16px 미만이면 iOS가 입력 시 화면을 확대한다
+    fontSize: {
+      default: controls.fontSize,
+      [narrow]: "16px",
+    },
     outline: "none",
     boxShadow: {
       default: "none",
@@ -64,7 +76,6 @@ const styles = stylex.create({
   },
   invalid: {
     borderColor: colors.danger,
-    backgroundColor: colors.dangerSurface,
     boxShadow: {
       default: "none",
       ":focus": `0 0 0 3px ${colors.dangerRingSoft}`,

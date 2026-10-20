@@ -1,0 +1,11 @@
+{
+  "story": "S031",
+  "story_hash": "c9609254d7d77df9543ed1aa7626caeffb14f36314194a2ec09717d748a69e06",
+  "phase": "done",
+  "note": "자동 완료: 반영 지적 없음(review-1·design-review-1·qa-1), 검증 근거 implementation.md·records/browser drawer.txt 51 PASS·count.txt 19 PASS·vp test 140 PASS",
+  "completion": {
+    "message_id": "20261020T093001741000Z-58ccb10b7075",
+    "consolidation_required": true
+  },
+  "updated": "2026-10-20T09:30:01.749Z"
+}

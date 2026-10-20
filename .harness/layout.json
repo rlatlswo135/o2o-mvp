@@ -1,0 +1,16 @@
+{
+  "roles": [
+    "planner",
+    "executor",
+    "reviewer",
+    "designer",
+    "qa"
+  ],
+  "agents": {
+    "planner": "pi",
+    "executor": "claude",
+    "reviewer": "pi",
+    "designer": "claude",
+    "qa": "pi"
+  }
+}

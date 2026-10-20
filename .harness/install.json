@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "runtime": "node",
+  "files": {
+    ".harness/bin/c2h.mjs": "d253f577e10fd7c183b7b7920cbafe459004fa9afff6b94a449bbddeca8358f4",
+    ".harness/bin/runtime.mjs": "25924e1f9edb0b318f20b5f31e7483c2e15bac8132138e9faf9309c6b5c82645",
+    ".harness/bin/qa-contract.mjs": "88c6b72fd167f2ce871a957e1f2563ae4ffb7f5865dc0f4d8a5c7ffcadddc8c8",
+    ".harness/bin/evidence.mjs": "ccb1ddcb9d09d8ac204825eb9b5aab5b521a76274e9e90fa964a263a18305a86",
+    ".harness/bin/board.mjs": "0a33e70df38d3218a5a1f3c7ac5310688861f8e04b8bbb324a21100d856b485f",
+    ".harness/bin/console-ui.mjs": "276f978a7b28c0186ee863a3674308948372e43446eac53994eb5d8a7a860814",
+    ".harness/bin/terminal.mjs": "50830e99f514d16e09625cf9cb706d0cac5d0cef203131c90a638e5ff16675b9",
+    ".harness/bin/signals.mjs": "69ae42330d634b0fb65eee54b7f0fecce82c6c2543fbf48e839c61f0395b99e0",
+    ".harness/bin/claude-hook.mjs": "daf8aa452569bcc4789c736f2357b3c84e5d5a48af88ca0a0daffa916fee5cb1",
+    ".harness/bin/characters.mjs": "fc485693258d961d9500d68355f4bec5f847c77315222d5f590683a495335a8a",
+    ".harness/bin/sprites.mjs": "efb60fc56b48075b7bfe209d51a19781a4596e120ab88c95048e45df0260e950",
+    ".harness/bin/usage.mjs": "5a3da88e7413ade47f01524f88907a70ff3188281fe73f80a1617a821c385cb8",
+    ".harness/bin/claude-role.mjs": "86cc03df6be3f13b9094eb515557dabb65b2a0bf1f1ba0e2b9678564effd8828",
+    ".harness/bin/launch.mjs": "e53da0391b471ee0af68ff117524bf814b382e70d358825031e9cf57dc01db12",
+    ".harness/bin/layout.mjs": "72086db321461cab36ea06355bdf9ab930e84853a364500f9a170e7f1cc80b52",
+    ".harness/bin/pane-ui.mjs": "059d20b00de04181a1c9733c4ae67c2beaba0f59a7699263e7a674f8adc0802d",
+    ".pi/extensions/c2h-reviewer.ts": "3c31432eb9fee438a0e18a1538191ce66bf126a82eed236b9660a6063010b6c4",
+    ".harness/roles/planner.md": "8553dcaa2ad262a9ad0b1f0ddfc033f2f5555fe20bcb24ccaa8a4782f8587818",
+    ".harness/roles/executor.md": "75720b83df2ea9e001442bf8959312fa6a30a4d0c11823b02957622470e5eea6",
+    ".harness/roles/reviewer.md": "e364f0caaf978ba15875470aa26b8481447ed3f910056ecfe1121f5876baa202",
+    ".harness/roles/designer.md": "00c222c76bbc081377a789099522951ed2be8f7d3280e9ea5cff8f42875560f9",
+    ".harness/roles/qa.md": "52401d2415a4758227f93b54a686b0a88e0d489b456e2f75984a80f6c68b7f65",
+    ".harness/FLOW.md": "a45ed377acafa66f5649db77fbd7e4641a5e74ace26dd9a97406006d042593ed",
+    ".harness/STORY.md": "aa4cbdf5271c9744759931607742b5c5a572fc270792d665abdf4295b40c22d0",
+    ".harness/CLAUDE-ROLE.md": "71e471877e45fa04d54a11e100e4371e0484fef3c6e2ac0e163ac9f907dc2c58"
+  }
+}
