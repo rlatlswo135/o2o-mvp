@@ -4,84 +4,75 @@ import type { ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { useQuery } from "@tanstack/react-query";
 
-import type { DataTableColumn } from "@/shared/ui/data-table/data-table.tsx";
-
 import { formatPhone } from "@/shared/format/phone.ts";
 import { Button } from "@/shared/ui/button/button.tsx";
-import { DataTable } from "@/shared/ui/data-table/data-table.tsx";
+import { createAppColumnHelper, DataTable } from "@/shared/ui/data-table/data-table.tsx";
+import { EmptyState } from "@/shared/ui/empty-state/empty-state.tsx";
+import { Skeleton } from "@/shared/ui/skeleton/skeleton.tsx";
 
 import { colors } from "../../shared/ui/theme.stylex.ts";
 import { customerQueries } from "./customers.api.ts";
 
 export type CustomerListProps = {
-  toolbar?: ReactNode;
+  actions?: ReactNode;
   onEdit?: ((customer: Customer, trigger: HTMLButtonElement) => void) | undefined;
   editingId?: number | undefined;
 };
 
-export function CustomerList({ toolbar, onEdit, editingId }: CustomerListProps) {
+export function CustomerList({ actions, onEdit, editingId }: CustomerListProps) {
   const query = useQuery(customerQueries.list());
 
-  const columns: ReadonlyArray<DataTableColumn<Customer>> = [
-    {
-      key: "name",
-      header: "이름",
-      cell: (customer) => (
-        <span {...stylex.props(styles.who)}>
-          <span aria-hidden="true" {...stylex.props(styles.avatar, avatarTones[customer.id % 3])}>
-            {customer.name.charAt(0)}
-          </span>
-          <span {...stylex.props(styles.name)}>{customer.name}</span>
-        </span>
-      ),
-    },
-    {
-      key: "phone",
-      header: "전화번호",
-      cell: (customer) => (
-        <span {...stylex.props(styles.phone)}>{formatPhone(customer.phone)}</span>
-      ),
-    },
-    ...(onEdit
-      ? [
-          {
-            key: "actions",
-            header: "관리",
-            align: "end",
-            cell: (customer: Customer) => (
-              <Button
-                variant="secondary"
-                size="small"
-                aria-label={`${customer.name} 고객 정보 수정`}
-                aria-haspopup="dialog"
-                aria-expanded={customer.id === editingId}
-                onClick={(event) => onEdit(customer, event.currentTarget)}
-              >
-                수정
-              </Button>
-            ),
-          } satisfies DataTableColumn<Customer>,
-        ]
-      : []),
-  ];
+  const columns = onEdit
+    ? [
+        ...baseColumns,
+        columnHelper.display({
+          id: "actions",
+          header: "관리",
+          meta: { align: "end" },
+          cell: ({ row: { original: customer } }) => (
+            <Button
+              variant="secondary"
+              size="small"
+              aria-label={`${customer.name} 고객 정보 수정`}
+              aria-haspopup="dialog"
+              aria-expanded={customer.id === editingId}
+              onClick={(event) => onEdit(customer, event.currentTarget)}
+            >
+              수정
+            </Button>
+          ),
+        }),
+      ]
+    : baseColumns;
 
   return (
-    <DataTable
+    <DataTable.Root
       title="고객 목록"
-      // 지금 API는 전체 목록을 주므로 받은 행 수가 전체 고객 수다
-      countLabel={(count) => `전체 ${count.toLocaleString("ko-KR")}명`}
       query={query}
       columns={columns}
-      rowKey={(customer) => customer.id}
-      selectedKey={editingId}
-      toolbar={toolbar}
-      loadingLabel="고객 목록을 불러오는 중이에요."
-      errorMessage="고객 목록을 불러오지 못했어요. 고객이 없다는 뜻은 아니에요."
-      empty={{
-        title: "아직 등록된 고객이 없어요",
-        description: "고객 등록으로 첫 고객을 추가해보세요.",
-      }}
-    />
+      getRowId={(customer) => String(customer.id)}
+    >
+      <DataTable.Header actions={actions}>
+        {/* 지금 API는 전체 목록을 주므로 받은 행 수가 전체 고객 수다 */}
+        <DataTable.Count>{(count) => `전체 ${count.toLocaleString("ko-KR")}명`}</DataTable.Count>
+        <DataTable.PageSize />
+      </DataTable.Header>
+      <DataTable.Content
+        pending={<Skeleton label="고객 목록을 불러오는 중이에요." rows={4} />}
+        error={
+          <DataTable.RetryError message="고객 목록을 불러오지 못했어요. 고객이 없다는 뜻은 아니에요." />
+        }
+        empty={
+          <EmptyState
+            title="아직 등록된 고객이 없어요"
+            description="고객 등록으로 첫 고객을 추가해보세요."
+          />
+        }
+      />
+      <DataTable.Footer>
+        <DataTable.Pagination />
+      </DataTable.Footer>
+    </DataTable.Root>
   );
 }
 
@@ -139,3 +130,23 @@ const avatarStyles = stylex.create({
 });
 
 const avatarTones = [avatarStyles.coral, avatarStyles.sand, avatarStyles.sage];
+
+const columnHelper = createAppColumnHelper<Customer>();
+
+const baseColumns = columnHelper.columns([
+  columnHelper.accessor("name", {
+    header: "이름",
+    cell: ({ row: { original: customer } }) => (
+      <span {...stylex.props(styles.who)}>
+        <span aria-hidden="true" {...stylex.props(styles.avatar, avatarTones[customer.id % 3])}>
+          {customer.name.charAt(0)}
+        </span>
+        <span {...stylex.props(styles.name)}>{customer.name}</span>
+      </span>
+    ),
+  }),
+  columnHelper.accessor("phone", {
+    header: "전화번호",
+    cell: ({ getValue }) => <span {...stylex.props(styles.phone)}>{formatPhone(getValue())}</span>,
+  }),
+]);

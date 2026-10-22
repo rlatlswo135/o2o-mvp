@@ -43,10 +43,11 @@ export function pose(row, alert, now = Date.now()) {
 }
 
 const STAGE = { planning: '계획', implementing: '구현', implementation_done: '구현', fixing: '구현', reviewing: '리뷰', review_ready: '리뷰', review_decision: '리뷰' };
-export function pipeline({ story, phase, roles = [], designPending = false, qaPending = false, blocked = false, started = false }) {
+// waiting: the finished story's complete screen was closed, so the stages wait for the next story instead of showing it done.
+export function pipeline({ story, phase, roles = [], designPending = false, qaPending = false, blocked = false, started = false, waiting = false }) {
   if (!story) return null;
   const names = ['계획', ...(roles.includes('designer') ? ['디자인'] : []), '구현', '리뷰', ...(roles.includes('qa') ? ['QA'] : [])];
-  if (phase === 'done') return names.map(name => ({ name, state: 'done' }));
+  if (phase === 'done') return names.map(name => ({ name, state: waiting ? 'next' : 'done' }));
   let current = phase === 'blocked' ? (started ? '구현' : '계획') : STAGE[phase] ?? '계획';
   if (current === '계획' && designPending && names.includes('디자인')) current = '디자인';
   const index = names.indexOf(current);
@@ -74,6 +75,39 @@ export function stallTracker({ window = 60000, now = () => Date.now() } = {}) {
       stalled[role] = time - seen.get(role).since >= window;
     }
     return stalled;
+  };
+}
+
+// Claude's input box in a screen captured with escapes: the ❯ line right under a rule. Dim text there is Claude's own
+// suggestion; anything else is the user's unsent draft, which typing into the box would mangle.
+const SGR = /\x1b\[[0-9;]*m/g;
+export function promptEmpty(screen) {
+  const lines = String(screen).split('\n'), plain = line => line.replace(SGR, '');
+  for (let i = lines.length - 1; i > 0; i--) {
+    if (!plain(lines[i]).startsWith('❯') || !/^─{8,}$/.test(plain(lines[i - 1]).trim())) continue;
+    return !lines[i].replace(/\x1b\[2m[^\x1b]*/g, '').replace(SGR, '').replace(/^❯/, '').trim();
+  }
+  return false;
+}
+
+// A Claude turn that ended on an API error (StopFailure) leaves the role stopped, usually without its waiter: it hears
+// nothing until someone types. After `delay` the console types the resume request for it, once per failure, only into an
+// empty input box, and at most `limit` times before the role settles normally again (a lasting outage is not retried forever).
+export const REVIVE_TEXT = '이어서 진행 (하네스 자동 재개: 응답 오류로 턴이 끊겼다)';
+export function reviveTracker({ screen, type, delay = 20000, limit = 3, now = () => Date.now() }) {
+  const tried = new Map();
+  return rows => {
+    const revived = [];
+    for (const { role, agent, live, presence } of rows) {
+      if (presence?.state === 'idle') tried.delete(role);
+      if (agent !== 'claude' || !live || presence?.state !== 'failed' || now() - presence.at < delay) continue;
+      const entry = tried.get(role) ?? { at: null, count: 0 };
+      if (entry.at === presence.at || entry.count >= limit) continue;
+      try { if (!promptEmpty(screen(role))) continue; type(role, REVIVE_TEXT); } catch { continue; }
+      tried.set(role, { at: presence.at, count: entry.count + 1 });
+      revived.push(role);
+    }
+    return revived;
   };
 }
 

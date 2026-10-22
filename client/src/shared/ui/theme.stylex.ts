@@ -17,7 +17,6 @@ export const colors = stylex.defineVars({
 
   neutralSurface: "#f3ebe4",
   neutralText: "#5e504a",
-  selectedSurface: "#f7ede6",
 
   infoSurface: "#f1eeea",
   success: "#2e6b45",

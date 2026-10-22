@@ -15,14 +15,16 @@ export const hash = v => (Math.imul(v | 0, 2654435761) >>> 0) / 4294967296;
 
 // ---------------- cell grid ----------------
 // Text cells and pixel cells share one grid; a pixel drawn over text clears it. clip limits pixels to a region.
+// Text without its own background keeps the cell's (a working card's tint).
 export function grid(w, h) { return { w, h, clip: null, cells: Array.from({ length: w * h }, () => ({ ch: ' ', fg: null, bg: null, bold: false, top: null, bottom: null })) }; }
 export function put(G, x, y, text, fg = null, bg = null, bold = false) {
   for (const c of clean(text)) {
     const w = columns(c);
     if (!w) continue;
     if (y >= 0 && y < G.h && x >= 0 && x + w <= G.w) {
-      Object.assign(G.cells[y * G.w + x], { ch: c, fg, bg, bold, top: null, bottom: null });
-      if (w === 2) Object.assign(G.cells[y * G.w + x + 1], { ch: '', fg, bg, bold, top: null, bottom: null });
+      const at = G.cells[y * G.w + x];
+      Object.assign(at, { ch: c, fg, bg: bg ?? at.bg, bold, top: null, bottom: null });
+      if (w === 2) Object.assign(G.cells[y * G.w + x + 1], { ch: '', fg, bg: bg ?? at.bg, bold, top: null, bottom: null });
     }
     x += w;
   }
@@ -76,12 +78,24 @@ function sline(S, x0, y0, x1, y1, c) {
   const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1; let e = dx + dy;
   for (let n = 0; n < 64; n++) { sp(S, x0, y0, c); if (x0 === x1 && y0 === y1) break; const e2 = 2 * e; if (e2 >= dy) { e += dy; x0 += sx; } if (e2 <= dx) { e += dx; y0 += sy; } }
 }
+// Straight run of pixels (fractional ends allowed).
+function seg(plot, x0, y0, x1, y1, c) { const n = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)))); for (let k = 0; k <= n; k++) plot(x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n, c); }
+// Jagged lightning from (x0,y0) to (x1,y1); seed fixes the zigzag. The glow is drawn first, the core over it.
+function bolt(plot, x0, y0, x1, y1, seed, core, glow) {
+  const n = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) / 3)), pts = [];
+  for (let k = 0; k <= n; k++) { const f = k / n, j = k && k < n ? 1 : 0; pts.push([x0 + (x1 - x0) * f + j * (hash(seed * 31 + k) - .5) * 4, y0 + (y1 - y0) * f + j * (hash(seed * 37 + k) - .5) * 3]); }
+  if (glow) for (let k = 1; k <= n; k++) for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) seg((x, y, c) => plot(x + a, y + b, c), ...pts[k - 1], ...pts[k], glow);
+  for (let k = 1; k <= n; k++) seg(plot, ...pts[k - 1], ...pts[k], core);
+}
+// Empty pixels touching the drawn body, for auras that hug the silhouette.
+function rim(S) {
+  const out = [], at = (x, y) => x >= 0 && y >= 0 && x < S.w && y < S.h && S.p[y * S.w + x];
+  for (let y = 0; y < S.h; y++) for (let x = 0; x < S.w; x++) if (!at(x, y) && (at(x + 1, y) || at(x - 1, y) || at(x, y + 1) || at(x, y - 1))) out.push([x, y]);
+  return out;
+}
 const gray = c => { const [r, g, b] = hx(c), l = .3 * r + .59 * g + .11 * b; return mix(toHex([l, l, l]), BG, .35); };
 const alertMark = (S, t) => { srect(S, 18, 0, 4, 5, '#D9534F'); sp(S, 18, 5, '#D9534F'); srect(S, 19, 1, 2, 2, '#FFFFFF'); srect(S, 19, 4, 2, 1, '#FFFFFF'); if (Math.floor(t * 4) % 2) srect(S, 18, 0, 4, 1, '#FF8A80'); };
 
-// Role palette for the text particles.
-const PAL = {};
-function pal(role, off) { const k = off ? 'off' : role; if (PAL[k]) return PAL[k]; const m = off ? '#6B6470' : ROLE_COLOR[role]; return PAL[k] = { main: m, light: mix(m, '#FFFFFF', .45), dark: mix(m, '#000000', .35), deep: mix(m, '#000000', .6) }; }
 // ---------------- characters ----------------
 // Body maps are 14x14; each letter is a palette key, '.' is empty. Eyes, mouth, arms and props are drawn on top.
 // Fan-art characters for a private repository; without color the console falls back to the box art.
@@ -99,9 +113,17 @@ const CHARS = {
   reviewer: { id: 'zoro', name: '조로', line: '흥, 별거 아니군', arm: ['w', 's'], hand: 's', eyes: [[8, 4]], mouth: [6, 7, 2, '#8A4A3A'],
     P: { g: '#4FBF5A', G: '#2E8B3E', s: SK, x: '#C98A70', a: '#FFD24A', w: '#EDEDED', h: '#2E6B3A', k: '#2A2A33', b: '#16161C' },
     map: ['...g.gggg.g...', '..gggggggggg..', '..gGggggggGg..', '..gssxssGGsg..', '..sssxssssss..', '.asssxssssss..', '.a.ssxsssss...', '....ssssss....', '....wwwwww....', '....hhhhhh....', '....kkkkkk....', '....kk..kk....', '....kk..kk....', '...bb....bb...'] },
-  qa: { id: 'buggy', name: '버기', line: '화려하게 가자!', arm: ['c', 'c'], hand: 'W', lid: 'f', mouth: [5, 7, 4, '#E53935'],
-    P: { h: '#2B2F5A', w: '#FFFFFF', B: '#3F6BC4', f: '#F4EEE8', R: '#E53935', c: '#E8762B', y: '#FFD24A', p: '#6A4C9C', n: '#3A2A20', W: '#F5F5F5' },
-    map: ['...hhhhhhhh...', '..hhhhwwhhhh..', '.hhhhhhhhhhhh.', '.BBffffffffBB.', 'BBBffffffffBBB', '.BBfffRRfffBB.', '...fffRRfff...', '....ffffff....', '....cccccc....', '....cyyyyc....', '....cccccc....', '....pp..pp....', '....pp..pp....', '...nn....nn...'] },
+  // Captain's hat with his own jolly roger, long blue hair, clown-white face, round red nose, red coat with a fur collar.
+  qa: { id: 'buggy', name: '버기', line: '화려하게 가자!', arm: ['c', 'c'], hand: 'W', lid: 'f', mouth: [5, 8, 4, '#E53935'], sh: [[3, 9], [10, 9]],
+    P: { h: '#1D2340', H: '#2E3768', w: '#F5F5F5', R: '#FF2D2D', B: '#4FA3E0', f: '#FAF4EE', c: '#C62828', W: '#F2F2F2', b: '#3F6BC4', p: '#5B3F8C', n: '#3A2A20' },
+    map: ['....hhhhhh....', '...hhwwwwhh...', '...hhwRRwhh...', '.HHHHHHHHHHHH.', 'BBBffffffffBBB', 'BBffffffffffBB', 'BBffffRRffffBB', 'B.ffffRRffff.B', 'B..ffffffff..B', 'B..WWWWWWWW..B', '....cbwbwc....', '....cwbwbc....', '....pp..pp....', '...nn....nn...'] },
+};
+// Cross Guild officers who show up behind Buggy (9x14, drawn behind him).
+const GUILD = {
+  mihawk: { P: { k: '#16161C', F: '#EDE4FA', s: SK, Y: '#FFD21F', m: '#26262E', c: '#2B2B36', r: '#7A1E2E', y: '#E0B030' },
+    map: ['......FF.', '...kkkFF.', '..kkkkkF.', 'kkkkkkkkk', '..ksssk..', '..sYsYs..', '..smmms..', '...sss...', '.ccsyscc.', 'crcsyscrc', 'cc.ccc.cc', '...ccc...', '...c.c...', '..kk.kk..'] },
+  crocodile: { P: { k: '#16161C', s: '#E8B48E', x: '#8A5040', c: '#1F2A24', f: '#8B6A3E', g: '#2E5E3E' },
+    map: ['..kkkkk..', '.kkkkkkk.', '.kssssss.', '..sksks..', '.sxxxxxs.', '..sssss..', '...sss...', 'fffcgcfff', 'ffcccccff', '.ccccccc.', '.cc.c.cc.', '...ccc...', '...c.c...', '..kk.kk..'] },
 };
 export const castName = role => CHARS[role]?.name ?? null;
 export const catchphrase = role => CHARS[role]?.line ?? null;
@@ -115,7 +137,8 @@ function drawChar(S, C, o) {
   const Y = y => oy + y + (y <= 10 ? bob : 0) - (y <= 7 ? lift : 0), X = x => ox + x, col = k => o.recolor?.[k] || P[k];
   o.X = X; o.Y = Y; o.hands = {};
   if (!o.noShadow) { const w = Math.max(4, 8 - Math.max(0, ground - oy - 14) * 2); for (let k = 0; k < w; k++) sp(S, ox + 7 - w / 2 + k, ground, '#2A2230'); }
-  for (let y = C.map.length - 1; y >= 0; y--) [...C.map[y]].forEach((k, x) => { if (k !== '.') sp(S, X(x), Y(y), col(k)); });
+  const map = o.map || C.map;
+  for (let y = map.length - 1; y >= 0; y--) [...map[y]].forEach((k, x) => { if (k !== '.') sp(S, X(x), Y(y), col(k)); });
   const E = C.eyeC || '#1A1420', lid = P[C.lid || 's'], look = Math.max(C.look?.[0] ?? -1, Math.min(C.look?.[1] ?? 1, o.look || 0));
   (C.eyes || [[5, 4], [8, 4]]).forEach(([ex, ey]) => {
     const x = X(ex), y = Y(ey);
@@ -142,11 +165,40 @@ function drawChar(S, C, o) {
 }
 function bug(S, x, y, frame) { sp(S, x, y, '#7CFC6A'); sp(S, x + 1, y, '#4FBF45'); if (frame % 2) sp(S, x, y - 1, '#FFFFFF'); }
 const bugAt = t => [18 + Math.round(2.5 * Math.sin(t * 3.3)), 4 + Math.round(2 * Math.sin(t * 5.1))];
+const ease = k => 1 - (1 - Math.max(0, Math.min(1, k))) ** 3;
+const lerp = (a, b, k) => a + (b - a) * Math.max(0, Math.min(1, k));
+function officer(S, M, x0, y0, seen) { M.map.forEach((row, y) => [...row].forEach((k, x) => { if (k !== '.' && seen(x, y)) sp(S, x0 + x, y0 + y, M.P[k]); })); }
 
-// Per-character tweaks: pre sets pose fields before the body is drawn, post adds props; vpre/vpost do the same for the cheering pose.
+// Signature-move clocks, shared by a sprite, its card border and its tint so they hit the same beat.
+// Gear 5: three rubber bounces, then a giant fist (punch 0..1).
+const gear5 = t => { const c = t % 2.4; return c < 1.2 ? { hop: Math.abs(Math.sin(c / 1.2 * 3 * Math.PI)) > .5 ? 1 : 0, punch: null } : { hop: 0, punch: (c - 1.2) / 1.2 }; };
+// Enma: short slashes all along, and a cut across the whole card every 2.4s (cut 0..1).
+const enma = t => { const c = t % 2.4; return { cut: c > 1.6 && c < 2.1 ? (c - 1.6) / .5 : null }; };
+// Zeus: each strike draws one more point of the route; the sky lights for the first .1s of a strike.
+const ROUTE = [[18, 13], [19, 12], [19, 11], [20, 11], [21, 10], [21, 9], [22, 8]];
+const zeus = t => { const step = Math.floor(t * 3) % (ROUTE.length + 5); return { step, flash: step >= 1 && step <= ROUTE.length && (t * 3) % 1 < .3 }; };
+// Cross Guild: a bug hunt, then Mihawk and Crocodile arrive (in 0..1), pose (pose 0..1) and fade out.
+const guild = t => { const c = t % 5; return c < 2.6 ? { hunt: true, in: 0 } : c < 3 ? { in: (c - 2.6) / .4 } : c < 4.5 ? { in: 1, pose: (c - 3) / 1.5 } : { in: 1 - (c - 4.5) / .5, out: true }; };
+const roll = g => g.pose !== undefined && g.pose < .08;
+
+const HAKI = ['#1A0826', '#3A0F5C', '#6B1FA8', '#A855F7'], ENMA = ['#120A14', '#2A0C22', '#4B1238', '#7A1846', '#B3204F'];
+const ENMA_AURA = ['#3B0A3A', '#6A1A6A', '#9A2A6A', '#E05080'], BLUE = ['#0B1E5B', '#1F4FD8', '#2F8BFF', '#5CC8FF', '#B8F0FF', '#FFFFFF'];
+const G5 = { y: '#FFFFFF', o: '#E6DCFF', r: '#FFFFFF', k: '#F4F0FF', b: '#E9E2F7' };
+const ZEUS = ['...ww..ww..', '..wwwwwwww.', '.wwwwwwwwww', 'wwwwwwwwwww', '.SSSSSSSSS.'];
+
+// Per-character tweaks: pre sets pose fields, under draws behind the body, post adds props; vpre/vpost do the same for the cheering pose.
+// The working pose is each character's signature move.
 const CFX = {
   luffy: {
-    pre(o, pose) { if (pose === 'idle' || pose === 'working') { o.armL = o.armR = 'hip'; o.mouth = 'grin'; } if (pose === 'working') { o.armR = 'none'; o.look = 1; } },
+    pre(o, pose, t) {
+      if (pose === 'idle') { o.armL = o.armR = 'hip'; o.mouth = 'grin'; }
+      if (pose !== 'working') return;
+      // Gear 5: hat and clothes go white, he bounces like rubber, then throws a giant fist.
+      const g = gear5(t);
+      Object.assign(o, { recolor: G5, mouth: 'grin', look: 1, oy: 1 - g.hop, bob: g.hop ? 0 : 1 });
+      if (g.punch !== null) Object.assign(o, { armL: 'hip', armR: 'none', bob: g.punch < .15 ? 1 : 0 });
+      else o.armL = o.armR = Math.floor(t * 6) % 2 ? 'up' : 'wave';
+    },
     post(S, o, pose, t, frame) {
       if (pose === 'sleeping') { // snot bubble
         const r = Math.floor(t * 1.4) % 4, bx = o.X(8), by = o.Y(6) + 1, C = '#A8DCFF';
@@ -154,21 +206,38 @@ const CFX = {
         if (r >= 2) { srect(S, bx, by - 1, r, r, C); sp(S, bx, by - 1, '#FFFFFF'); }
       }
       if (pose !== 'working') return;
-      srect(S, 15, 14, 7, 1, '#2E3240'); for (let x = 15; x < 22; x += 2) sp(S, x, 14, '#5A6070');
-      const fist = k => [17 + Math.floor(hash(k * 7) * 3), 9 + Math.floor(hash(k * 13) * 4)];
-      for (let gh = 2; gh >= 1; gh--) { const [fx, fy] = fist(frame - gh); srect(S, fx, fy, 2, 2, mix(SK, BG, .25 + gh * .2)); }
-      const [fx, fy] = fist(frame); sline(S, o.X(11), o.Y(8), fx - 1, fy, SK); srect(S, fx, fy, 2, 2, SK); sp(S, fx + 1, fy + 1, '#D9A07A');
-      sp(S, 15 + Math.floor(hash(frame * 3) * 7), 14, '#E6FBFF');
+      // Cloud hair and the cloud ring on his shoulders boil every frame.
+      const puff = (x, y, k) => spE(S, x, y, hash(k * 7 + frame) > .4 ? '#FFFFFF' : '#D9CCF2');
+      for (let k = 0; k < 14; k++) if (hash(k * 13 + frame) > .35) puff(o.X(k), o.Y(0) - 1 - (hash(k * 5 + frame) > .7 ? 1 : 0), k);
+      for (let k = 0; k < 4; k++) { puff(o.X(-1), o.Y(1 + k), k); puff(o.X(14), o.Y(1 + k), k + 9); }
+      for (const x of [2, 3, 10, 11]) puff(o.X(x), o.Y(8) - (hash(x + frame) > .5 ? 1 : 0), x);
+      [4, 9].forEach(x => sp(S, o.X(x), o.Y(4), '#FF3B5C'));
+      const g = gear5(t); if (g.punch === null) return;
+      // The fist balloons out to the right, wrapped in haki lightning at full reach.
+      const p = g.punch, f = ease((p - .15) / .25) * (1 - ease((p - .8) / .2)), sx = o.X(11), sy = o.Y(8), fx = sx + 2 + f * 9, fy = sy - f, r = 1 + f * 2.4;
+      seg((x, y, c) => { sp(S, x, y, c); sp(S, x, y + 1, c); }, sx, sy, fx, fy, SK);
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const d = Math.hypot(dx, dy); if (d <= r) sp(S, fx + dx, fy + dy, d > r - 1 ? '#FFFFFF' : dx === Math.floor(r) - 1 && dy % 2 ? '#D9A07A' : SK); }
+      if (f < .95) return;
+      for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4 + frame * .2, len = 2 + (frame + k) % 3; for (let q = r + 1; q <= r + len; q++) spE(S, fx + Math.cos(a) * q, fy + Math.sin(a) * q, k % 2 ? '#E9D5FF' : '#FFFFFF'); }
+      for (let k = 0; k < 2; k++) bolt((x, y, c) => sp(S, x, y, c), fx, fy, fx + (hash(frame * 3 + k) - .5) * 10, fy + (hash(frame * 5 + k) - .5) * 10, frame * 2 + k, '#14061E', '#C084FC');
     },
     vpre(o) { o.mouth = 'grin'; },
   },
   zoro: {
-    pre(o, pose) { if (pose === 'idle' || pose === 'sleeping') o.armL = o.armR = 'cross'; if (pose === 'working') { o.armR = 'out'; o.look = 1; o.recolor = { g: '#2A2A33', G: '#1A1A20' }; } },
-    post(S, o, pose, t) {
-      [[11, 10, '#EDEDED'], [12, 9, '#EDEDED'], [12, 10, '#B03A37'], [13, 9, '#B03A37'], [12, 11, '#4A4A56'], [13, 10, '#4A4A56']].forEach(([x, y, c]) => sp(S, o.X(x), o.Y(y), c));
-      if (pose !== 'working') return;
+    pre(o, pose) {
+      if (pose === 'idle' || pose === 'sleeping') o.armL = o.armR = 'cross';
+      // Enma: bandana on, a sword in each hand and the third in his mouth.
+      if (pose === 'working') Object.assign(o, { armL: 'out', armR: 'out', look: 1, recolor: { g: '#22222A', G: '#141418' } });
+    },
+    post(S, o, pose, t, frame) {
+      if (pose !== 'working') { [[11, 10, '#EDEDED'], [12, 9, '#EDEDED'], [12, 10, '#B03A37'], [13, 9, '#B03A37'], [12, 11, '#4A4A56'], [13, 10, '#4A4A56']].forEach(([x, y, c]) => sp(S, o.X(x), o.Y(y), c)); return; }
+      // Dark aura: violet-crimson flames lick up the silhouette; the eye burns red.
+      for (const [x, y] of rim(S)) { const n = hash(x * 7 + Math.floor(y + t * 9) * 13 + frame * 3); if (n > .45) { sp(S, x, y, ENMA_AURA[Math.min(3, Math.floor((n - .45) / .55 * 4))]); if (n > .85) spE(S, x, y - 1, ENMA_AURA[0]); } }
+      sp(S, o.X(8), o.Y(4), '#FF2A3A'); sp(S, o.X(8), o.Y(5), '#FF7A8A');
+      for (let x = 3; x <= 13; x++) sp(S, o.X(x), o.Y(7), x < 6 ? '#F2F2F2' : x === 13 ? '#FFFFFF' : '#C8D0DA');
+      const [lx, ly] = o.hands.L; for (let r = 1; r <= 4; r++) sp(S, lx - r * .5, ly - r, r === 4 ? '#FFFFFF' : '#C8D0DA');
       const [hx_, hy] = o.hands.R, p = (t % .8) / .8, a = p < .45 ? -1.3 + p / .45 * 2.2 : .9;
-      if (p < .7) for (let k = 4; k >= 1; k--) { const b = a - k * .3; sp(S, hx_ + Math.cos(b) * 5, hy + Math.sin(b) * 5, mix('#FFFFFF', BG, k * .2)); sp(S, hx_ + Math.cos(b) * 4, hy + Math.sin(b) * 4, mix('#FFFFFF', BG, .2 + k * .2)); }
+      if (p < .7) for (let k = 4; k >= 1; k--) { const b = a - k * .3; sp(S, hx_ + Math.cos(b) * 5, hy + Math.sin(b) * 5, mix('#FF4D6D', BG, k * .2)); sp(S, hx_ + Math.cos(b) * 4, hy + Math.sin(b) * 4, mix('#9A2A6A', BG, .2 + k * .2)); }
       for (let r = 1; r <= 5; r++) sp(S, hx_ + Math.cos(a) * r, hy + Math.sin(a) * r, r === 5 ? '#FFFFFF' : '#C8D0DA');
     },
     vpre(o) { o.mouth = null; },
@@ -178,60 +247,100 @@ const CFX = {
     },
   },
   nami: {
-    pre(o, pose) { if (pose === 'idle' || pose === 'working') o.mouth = 'smile'; if (pose === 'working') { o.armR = 'out'; o.look = 1; } },
+    pre(o, pose) { if (pose === 'idle' || pose === 'working') o.mouth = 'smile'; if (pose === 'working') { o.armR = 'up'; o.look = 1; } },
     post(S, o, pose, t) {
       if (pose !== 'working') return;
-      srect(S, 16, 3, 6, 1, '#C9A86A'); srect(S, 16, 4, 6, 8, '#EBD9AE'); srect(S, 16, 12, 6, 1, '#C9A86A');
-      [[17, 5], [18, 5], [17, 6], [20, 10], [21, 10], [21, 9]].forEach(([x, y]) => sp(S, x, y, '#8DBF6A'));
-      const R = [[17, 11], [18, 11], [18, 10], [19, 9], [19, 8], [20, 7], [20, 6], [21, 5]], n = Math.floor(t * 3) % (R.length + 5);
-      R.slice(0, n).forEach(([x, y]) => sp(S, x, y, '#C0392B'));
-      if (n > R.length) sp(S, 21, 5, Math.floor(t * 6) % 2 ? '#FF3030' : '#FFFFFF');
-      else if (n) { const [x, y] = R[n - 1]; sp(S, x - 1, y + 1, '#3A2A20'); }
+      // Clima-Tact raised to Zeus; each strike burns the next point of the route onto her map.
+      const z = zeus(t), [hx_, hy] = o.hands.R;
+      for (let k = 1; k <= 4; k++) sp(S, hx_, hy - k, '#3A7BD5');
+      sp(S, hx_, hy - 5, z.flash ? '#FFFFFF' : '#FFE14D');
+      srect(S, 17, 7, 7, 1, '#C9A86A'); srect(S, 17, 8, 7, 6, '#EBD9AE'); srect(S, 17, 14, 7, 1, '#C9A86A');
+      [[18, 9], [19, 9], [18, 10], [22, 12], [22, 13], [21, 13]].forEach(([x, y]) => sp(S, x, y, '#8DBF6A'));
+      const n = Math.min(z.step, ROUTE.length);
+      ROUTE.slice(0, n).forEach(([x, y]) => sp(S, x, y, '#C0392B'));
+      if (z.step > ROUTE.length) sp(S, ...ROUTE.at(-1), Math.floor(t * 6) % 2 ? '#FF3030' : '#FFFFFF');
+      // Zeus: a thundercloud with a face, darkening just before it strikes.
+      const cx = 14, cy = Math.round(Math.sin(t * 2.2) * .6), dark = !z.flash && (t * 3) % 1 > .75;
+      ZEUS.forEach((row, y) => [...row].forEach((k, x) => { if (k !== '.') spE(S, cx + x, cy + y, k === 'w' ? (dark ? '#8A93AD' : '#EEF2FA') : (dark ? '#5A6380' : '#A6B0C8')); }));
+      [[4, 2], [7, 2]].forEach(([x, y]) => sp(S, cx + x, cy + y, z.flash ? '#FFE14D' : '#2A2A3A'));
+      sp(S, cx + 5, cy + 3, '#2A2A3A'); sp(S, cx + 6, cy + 3, '#2A2A3A');
+      if (z.flash && n) { const [x, y] = ROUTE[n - 1]; bolt((a, b, c) => sp(S, a, b, c), cx + 6, cy + 5, x, y - 1, Math.floor(t * 3), '#FFF6B0', '#7FE6FF'); }
     },
     vpost(S, o, tau) { for (let k = 0; k < 2; k++) { const p = ((tau * .8 + k * .5) % 1); spE(S, o.X(-1 + k * 15), o.Y(0) + 8 - Math.floor(p * 9), p < .8 ? GOLD : '#FFF1A8'); } },
   },
   sanji: {
-    pre(o, pose, t) { if (pose === 'working') { o.armR = Math.floor(t * 4) % 2 ? 'out' : 'wave'; o.look = 1; } },
+    // Ifrit Jambe: hands in his pockets, the right leg kicks in a blue-flame arc.
+    pre(o, pose) { if (pose === 'working') Object.assign(o, { look: 1, armL: 'none', armR: 'none', map: KICK }); },
     post(S, o, pose, t, frame) {
       if (pose !== 'offline') {
         sp(S, o.X(9), o.Y(7), '#F5F5F5'); sp(S, o.X(10), o.Y(7), '#F5F5F5'); sp(S, o.X(11), o.Y(7), frame % 4 < 2 ? '#FF7A2A' : '#FFB347');
         for (let k = 0; k < 2; k++) { const p = (t * .6 + k * .5) % 1; spE(S, o.X(11) + Math.round(Math.sin(p * 6 + k * 2)), o.Y(7) - 1 - Math.floor(p * 6), mix('#C8C0D0', BG, p)); }
       }
       if (pose !== 'working') return;
-      srect(S, 16, 12, 5, 1, '#F4F0EA'); srect(S, 15, 13, 7, 1, '#BDB6AC');
-      const F = [[17, 11], [18, 11], [19, 11], [18, 10], [17, 10], [19, 10], [18, 9]], FC = ['#E25B45', '#F2C14E', '#7FB069', '#E8A0BF', '#F28C28', '#9BC1BC', '#FFFFFF'];
-      const n = Math.floor(t * 2.2) % (F.length + 4);
-      F.slice(0, n).forEach(([x, y], k) => sp(S, x, y, FC[k]));
-      if (n > F.length && Math.floor(t * 6) % 2) { sp(S, 20, 8, '#FFF6C2'); sp(S, 16, 9, '#FFF6C2'); }
+      // Wind up behind, sweep through to a high kick, hold, come back down; angles in radians, down = pi/2.
+      const leg = q => q < .3 ? lerp(1.57, 2.2, q / .3) : q < .45 ? lerp(2.2, -.6, (q - .3) / .15) : q < .75 ? -.6 : lerp(-.6, 1.57, (q - .75) / .25);
+      const p = (t % .9) / .9, a = leg(p), hx_ = o.X(9), hy = o.Y(11);
+      for (let k = 1; k <= 5; k++) { const b = leg(Math.max(0, p - k * .03)); if (Math.abs(b - a) > .05) for (let r = 3; r <= 5; r++) spE(S, hx_ + Math.cos(b) * r, hy + Math.sin(b) * r, BLUE[Math.max(1, 5 - k)]); }
+      for (let r = 1; r <= 5; r++) sp(S, hx_ + Math.cos(a) * r, hy + Math.sin(a) * r, r === 5 ? '#3A2A20' : '#22222C');
+      for (let r = 1; r <= 5; r++) for (let h = 1; h <= 3; h++) { const n = hash(r * 11 + h * 7 + frame); if (n > .3 + h * .15) spE(S, hx_ + Math.cos(a) * r + (n - .5), hy + Math.sin(a) * r - h, BLUE[Math.min(5, 5 - h + Math.floor(n * 2))]); }
+      if (p > .42 && p < .6) { const fx = hx_ + Math.cos(a) * 6, fy = hy + Math.sin(a) * 6; for (let k = 0; k < 8; k++) { const b = k * Math.PI / 4; for (let q = 1; q <= 2 + frame % 2; q++) spE(S, fx + Math.cos(b) * q, fy + Math.sin(b) * q, q > 1 ? BLUE[3] : '#FFFFFF'); } }
     },
     vpre(o) { o.eyes = 'heart'; },
   },
   buggy: {
-    pre(o, pose, t) { if (pose !== 'sleeping' && pose !== 'offline' && pose !== 'alert') o.mouth = 'smile'; if (pose === 'working') { o.armL = o.armR = 'none'; o.lift = Math.floor(t * 3) % 2; o.look = 1; } },
+    pre(o, pose, t) {
+      if (pose !== 'sleeping' && pose !== 'offline' && pose !== 'alert') o.mouth = 'smile';
+      if (pose !== 'working') return;
+      // Bara Bara bug hunt with his hands flying loose, then the Cross Guild assembles behind him.
+      const g = guild(t);
+      if (g.hunt) Object.assign(o, { armL: 'none', armR: 'none', lift: Math.floor(t * 3) % 2, look: 1 });
+      else Object.assign(o, { ox: 2 + Math.round(5 * ease(g.in)), armL: 'up', armR: 'up', mouth: 'grin', eyes: g.pose !== undefined && Math.floor(t * 4) % 2 ? 'happy' : 'open' });
+    },
+    under(S, o, pose, t, frame) {
+      if (pose !== 'working') return;
+      const g = guild(t); if (g.hunt) return;
+      const k = ease(g.in), seen = (x, y) => !g.out || hash(x * 7 + y * 13 + 5) < g.in, mx = Math.round(-9 + 10 * k), cx = Math.round(26 - 9 * k);
+      officer(S, GUILD.mihawk, mx, 0, seen);
+      officer(S, GUILD.crocodile, cx, 0, seen);
+      if (g.out) return;
+      // Yoru raised at Mihawk's side with a green glint running up the blade; Crocodile lifts his hook in a sand swirl.
+      const glint = g.pose === undefined ? -1 : 8 - Math.floor(g.pose * 18) % 9;
+      for (let y = 0; y <= 8; y++) sp(S, mx, y, y === glint ? '#9FE8B0' : y === 0 ? '#3A3A48' : '#121218');
+      srect(S, mx - 1, 9, 3, 1, '#C9A227'); sp(S, mx, 10, '#3A2A20'); sp(S, mx, 11, '#3A2A20');
+      [[8, 8], [8, 7], [8, 6], [7, 5]].forEach(([x, y]) => sp(S, cx + x, y, '#E8B830'));
+      sp(S, cx + 6, 4, '#8B5E3C'); sp(S, cx + 7, 4, frame % 4 < 2 ? '#FF7A2A' : '#FFB347');
+      if (g.pose !== undefined) for (let q = 0; q < 10; q++) { const a = t * 4 + q * .63; sp(S, cx + 4 + Math.cos(a) * 6, 8 + Math.sin(a) * 3 - q * .2, q % 2 ? '#D9B26A' : '#B8924A'); }
+    },
     post(S, o, pose, t, frame) {
       if (pose !== 'working') return;
-      const W = '#F5F5F5', c = '#E8762B', cyc = t % 3;
-      sp(S, o.X(3), o.Y(8), c); sp(S, o.X(10), o.Y(8), c);
-      if (cyc > 2.3) { sp(S, 18, 6, W); sp(S, 20, 6, W); sp(S, 19, 6, '#7CFC6A'); sp(S, 18, 7, c); sp(S, 20, 7, c); return; }
+      const g = guild(t), W = '#F5F5F5', c = '#C62828';
+      if (!g.hunt) {
+        if (roll(g)) for (let k = 0; k < 12; k++) { const a = k * Math.PI / 6; for (let q = 6; q <= 9; q++) spE(S, 13 + Math.cos(a) * q * 1.4, 7 + Math.sin(a) * q * .8, q % 2 ? GOLD : '#FFFFFF'); }
+        return;
+      }
+      sp(S, o.X(3), o.Y(9), c); sp(S, o.X(10), o.Y(9), c);
       const [bx, by] = bugAt(t); bug(S, bx, by, frame);
       [[bx - 2 + Math.round(Math.sin(t * 9)), by + 2], [bx + 2, by - 1 + Math.round(Math.cos(t * 8))]].forEach(([x, y]) => { sp(S, x, y, W); sp(S, x, y + 1, c); });
     },
   },
 };
+// Sanji's body with the right leg left off, so the kick can draw it at any angle.
+const KICK = CHARS.designer.map.map((row, y) => y >= 11 ? row.slice(0, 8) + '......' : row);
 
-// 22x16 px = 22 columns x 8 rows.
+// 26x16 px = 26 columns x 8 rows; the right side leaves room for props and signature moves.
 function charSprite(C, pose, t, frame) {
-  const S = sbuf(22, 16), off = pose === 'offline', blink = (t % 3.7) < .16, fx = CFX[C.id] || {};
+  const S = sbuf(26, 16), off = pose === 'offline', blink = (t % 3.7) < .16, fx = CFX[C.id] || {};
   const o = { ox: 2, oy: 1, ground: 15, eyes: 'open', look: 0, armL: C.rest?.[0] || 'down', armR: C.rest?.[1] || 'down', mouth: null };
   if (pose === 'idle') { o.bob = Math.floor(t * 1.6) % 2; o.eyes = blink ? 'blink' : 'open'; o.look = [0, 0, 1, 0, -1, 0][Math.floor(t / 1.3) % 6]; }
   if (pose === 'sleeping') { o.bob = 1; o.lift = -(Math.floor(t * .8) % 2); o.eyes = 'sleep'; }
   if (pose === 'alert') { o.oy = 1 - [0, 0, 1, 1, 1, 1, 0, 0][Math.floor(t * 10) % 8]; const f = Math.floor(t * 5) % 2; o.armL = f ? 'up' : 'wave'; o.armR = f ? 'wave' : 'up'; o.mouth = 'o'; }
   if (off) o.eyes = 'sleep';
   fx.pre?.(o, pose, t, frame);
+  fx.under?.(S, o, pose, t, frame);
   drawChar(S, C, o);
   fx.post?.(S, o, pose, t, frame);
   if (pose === 'alert') alertMark(S, t);
-  if (off) S.p = S.p.map((c, i) => !c || ((i % 22) * 3 + Math.floor(i / 22)) % 4 === 0 ? null : gray(c));
+  if (off) S.p = S.p.map((c, i) => !c || ((i % S.w) * 3 + Math.floor(i / S.w)) % 4 === 0 ? null : gray(c));
   return S;
 }
 
@@ -252,20 +361,86 @@ export function cheer(role, { arms = ['up', 'up'], tau = 0 } = {}) {
   return S;
 }
 
+// ---------------- working auras ----------------
+// While a role works its whole card turns into the character's signature move: a tinted card, its own border,
+// effects across the card (field: behind the sprite, over: in front of it), the status ink and the move's name.
+// right is the last column effects may use, so the reply bubble stays clear.
+const inside = (G, right) => (x, y, c) => { if (x >= 1 && x <= right && y >= 2 && y <= G.h * 2 - 3) px(G, x, y, c); };
+const AURA = {
+  luffy: {
+    move: () => '기어 5 · 니카', tint: () => ['#2A1240', '#150A22'], ink: ['#A855F7', '#C084FC', '#E9D5FF', '#FFFFFF'],
+    // Haoshoku: a dark violet ring where lightning crackles in short bright runs.
+    edge: (t, tick) => (at, per) => {
+      const f = hash(at * 31 + tick * 17);
+      if (hash(Math.floor(at / 5) * 17 + Math.floor(tick / 2) * 131) > .8) return f > .5 ? '#FFFFFF' : f > .2 ? '#E9D5FF' : '#FF4D8D';
+      return HAKI[Math.min(3, Math.floor((.5 + .5 * Math.sin(2 * Math.PI * (2 * at / per - t / 2))) * 2.5 + f * 1.5))];
+    },
+    // Black lightning arcing in from the card's edges, a few bolts at a time.
+    field(G, t, tick, right) {
+      if (tick % 3 === 2) return;
+      const plot = inside(G, right);
+      for (let k = 0; k < 3; k++) {
+        const seed = Math.floor(tick / 3) * 3 + k; if (hash(seed * 7 + 1) > .6) continue;
+        const top = hash(seed * 11) > .5, x0 = 1 + hash(seed * 13) * (right - 1), y0 = top ? 2 : G.h * 2 - 3;
+        bolt(plot, x0, y0, x0 + (hash(seed * 17) - .5) * 18, y0 + (top ? 1 : -1) * (5 + hash(seed * 19) * 8), seed, '#0B0412', k % 2 ? '#FF4D8D' : '#B24DFF');
+      }
+    },
+  },
+  zoro: {
+    move: () => '삼도류 · 염왕', tint: t => enma(t).cut !== null && enma(t).cut < .3 ? ['#3A0A1E', '#1E0610'] : ['#170810', '#0B0508'], ink: ['#7A1846', '#B3204F', '#E0607A', '#FFD0DA'],
+    // Smouldering near-black ring with crimson embers; the cut flashes it white.
+    edge: (t, tick) => { const cut = enma(t).cut; return (at, per) => {
+      if (cut !== null && cut < .25) return hash(at + tick) > .3 ? '#FFE0E8' : '#FF4D6D';
+      const f = hash(at * 31 + Math.floor(tick / 2) * 17), w = .5 + .5 * Math.sin(2 * Math.PI * (2 * at / per + t / 4));
+      return f > .97 ? '#FF4D6D' : ENMA[Math.min(4, Math.floor(w * w * 3 + f * 1.8))];
+    }; },
+    field(G, t, tick, right) { const plot = inside(G, right); for (let k = 0; k < 7; k++) { const life = (t * .7 + hash(k * 3)) % 1; plot(2 + hash(k * 7) * 25 + Math.sin(t * 2 + k) * 1.5, 17 - life * 15, mix(k % 2 ? '#B3204F' : '#7A1846', '#170810', life)); } },
+    // The cut runs corner to corner in a blink, then cools to a dark scar.
+    over(G, t, tick, right) {
+      const cut = enma(t).cut; if (cut === null) return;
+      const plot = inside(G, right), reach = Math.min(1, cut / .15), cool = ease((cut - .15) / .85);
+      for (let f = 0; f <= reach; f += .5 / right) { const x = 1 + f * (right - 1), y = 17 - f * 15; plot(x, y - 1, mix('#FF3B5C', '#170810', cool)); plot(x, y + 1, mix('#5A1030', '#170810', cool)); plot(x, y, mix('#FFFFFF', '#3D0D2E', cool)); }
+    },
+  },
+  sanji: {
+    move: () => '이프리트 잠브', tint: () => ['#0A1638', '#081028'], ink: ['#2F8BFF', '#5CC8FF', '#B8F0FF', '#FFFFFF'],
+    edge: (t, tick) => (at, per) => { const w = .5 + .5 * Math.sin(2 * Math.PI * (3 * at / per - t / 1.6)), f = hash(at * 31 + tick * 17); return BLUE[f > .95 ? 5 : Math.min(5, Math.floor((w * w * .7 + f * .4) * 6))]; },
+    // Blue flames along the bottom of the card, sparks drifting up.
+    field(G, t, tick, right) {
+      const plot = inside(G, right), floor = G.h * 2 - 3;
+      for (let x = 1; x <= right; x++) { const h = Math.floor((.5 + .5 * Math.sin(x * .8 + t * 7)) * 2.5 + hash(x * 7 + tick) * 3); for (let d = 0; d <= h; d++) plot(x, floor - d, BLUE[Math.max(1, 4 - Math.floor(d / Math.max(1, h) * 3))]); }
+      for (let k = 0; k < 6; k++) { const life = (t * .9 + hash(k * 5)) % 1; plot(1 + hash(k * 11) * (right - 1), floor - 4 - life * 9, mix('#8FE3FF', '#0A1638', life)); }
+    },
+  },
+  nami: {
+    move: () => '제우스 브리즈 템포', tint: t => zeus(t).flash ? ['#3A4775', '#26305A'] : ['#101A33', '#0B1226'], ink: ['#7FE6FF', '#B8F4FF', '#FFE14D', '#FFFBD0'],
+    // Storm: a slate ring with sparks racing round it; a strike lights all of it.
+    edge: (t, tick) => { const flash = zeus(t).flash; return (at, per) => {
+      if (flash) return hash(at * 7 + tick) > .3 ? '#FFF6B0' : '#FFFFFF';
+      const d = Math.min(...[0, 1, 2].map(k => { const e = Math.abs(at - (k * per / 3 + t * per * .6) % per); return Math.min(e, per - e); }));
+      return d < 1 ? '#FFFFFF' : d < 3 ? '#FFE14D' : d < 6 ? '#7FE6FF' : hash(at * 31 + Math.floor(tick / 2)) > .9 ? '#5A6FB0' : '#2E3A60';
+    }; },
+    // Slanted rain over the card.
+    field(G, t, tick, right) { const plot = inside(G, right); for (let k = 0; k < 12; k++) { const y = 2 + (hash(k * 3) * 16 + t * 22) % 16, x = 1 + (hash(k * 7) * right - (y - 2) * .5 + right) % right; plot(x, y, '#3D5A8C'); plot(x + 1, y - 1, '#2A3F66'); } },
+  },
+  buggy: {
+    move: t => guild(t).hunt ? '바라바라 페스티벌' : 'CROSS GUILD 집합!', tint: t => roll(guild(t)) ? ['#5A4012', '#3A2A0C'] : ['#240D12', '#160A0C'], ink: ['#E53935', '#FF8A3D', '#FFD24A', '#FFF4D6'],
+    // Circus marquee: bulbs chase round the frame, racing gold and white while the guild is out.
+    edge: (t, tick) => { const g = guild(t), live = !g.hunt; return at => {
+      if (roll(g)) return '#FFFFFF';
+      const k = ((at + Math.floor(t * (live ? 14 : 5))) % 4 + 4) % 4;
+      return k === 0 ? '#FFE066' : k === 2 ? (live ? '#FFFFFF' : '#FF4D4D') : '#7A1020';
+    }; },
+    // Confetti while the guild poses.
+    field(G, t, tick, right) { const g = guild(t); if (g.hunt) return; const plot = inside(G, right); for (let k = 0; k < 16; k++) plot(1 + hash(k * 7) * (right - 1) + Math.sin(t * 3 + k), 2 + (hash(k * 13) * 16 + t * (6 + hash(k) * 6)) % 16, [GOLD, '#FFFFFF', '#E53935', '#FF8A3D'][k % 4]); },
+  },
+};
+export const aura = role => AURA[CHARS[role]?.id] ?? null;
+
 // Text particles between the sprite and the status column (x is the card's left edge). They never cover pixels.
-export function particles(G, role, pose, x, y, t, frame) {
-  const P = pal(role);
+export function particles(G, role, pose, x, y, t) {
   if (pose === 'quiet') { tput(G, x + 24, y + 2, '…?', '#B9AFC2'); return; }
-  if (pose === 'sleeping') { for (let k = 0; k < 2; k++) { const p = ((t * .9 + k * .75) % 1.5) / 1.5; tput(G, x + 23 + k, y + 4 - Math.floor(p * 3), k ? 'Z' : 'z', mix('#B9AFC2', BG, p)); } return; }
-  if (pose !== 'working') return;
-  if (role === 'executor') {
-    const CODE = '{}<>;=/*()[]';
-    for (let k = 0; k < 5; k++) { const life = 14, a = (frame + k * 3) % life, gen = Math.floor((frame + k * 3) / life); tput(G, x + 24 + ((k * 2 + gen) % 4), y + 7 - Math.floor(a / 2), CODE[(k * 5 + gen) % CODE.length], mix(P.light, BG, a / life), true); }
-  }
-  if (role === 'planner') { const p = (t % .9) / .9; tput(G, x + 24, y + 5 - Math.floor(p * 3), '✓', mix('#6EE7A0', BG, p), true); if (Math.floor(t) % 3 === 0) tput(G, x + 26, y + 3, '✎', P.light); }
-  if (role === 'designer') { for (let k = 0; k < 4; k++) { const s = Math.floor(t * 3) + k * 7; tput(G, x + 24 + Math.floor(hash(s) * 4), y + 1 + Math.floor(hash(s * 3) * 7), hash(s * 5) > .5 ? '•' : '+', hsl(hash(s * 7) * 360, 85, 65)); } }
-  if (role === 'reviewer') { const c = Math.floor(t / 1.6), a = t % 1.6, ok = c % 3 !== 2; if (a > .25) tput(G, x + 25, y + 3, ok ? '✓' : '✗', a > 1.3 ? mix(ok ? '#6EE7A0' : '#FF6F6F', BG, .6) : ok ? '#6EE7A0' : '#FF6F6F', true); if (Math.floor(t * 3) % 2) tput(G, x + 24, y + 5, '...', P.light); }
-  if (role === 'qa') { if (t % 3 > 2.3) { tput(G, x + 23, y + 2, 'BUG!', '#FF6F6F', true); tput(G, x + 24, y + 3, '+1', '#6EE7A0', true); } }
+  if (pose === 'sleeping') { for (let k = 0; k < 2; k++) { const p = ((t * .9 + k * .75) % 1.5) / 1.5; tput(G, x + 23 + k, y + 4 - Math.floor(p * 3), k ? 'Z' : 'z', mix('#B9AFC2', BG, p)); } }
 }
 
 // ---------------- pixel font ----------------

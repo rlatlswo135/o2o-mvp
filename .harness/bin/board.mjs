@@ -4,10 +4,10 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import * as runtime from './runtime.mjs';
 import { readLayout } from './layout.mjs';
-import { liveRoles, sessionName, presentRole, consoleState, tabReturn, captureRole } from './launch.mjs';
+import { liveRoles, sessionName, presentRole, consoleState, tabReturn, captureRole, typeRole } from './launch.mjs';
 import { fit, columns, clean } from './terminal.mjs';
-import { renderConsole, colorMode, VICTORY } from './console-ui.mjs';
-import { roleAlert, roleStatus, pose, pipeline, quietTracker, stallTracker } from './signals.mjs';
+import { renderConsole, colorMode } from './console-ui.mjs';
+import { roleAlert, roleStatus, pose, pipeline, quietTracker, stallTracker, reviveTracker } from './signals.mjs';
 import { displayUsage } from './usage.mjs';
 export { fit } from './terminal.mjs';
 
@@ -21,7 +21,7 @@ export function workflowHints(status, quality) {
   // select_story (executor) and plan with a planning story (planner) are roles at rest: their pickers open only on a user
   // command or a returned design, and then the native dialog signals. Other roles may be working on the story meanwhile.
   // From implementation to completion the executor moves on its own; these steps alert only when it rests there (signals).
-  if (status.roles.executor?.auto_stopped) return { alerts: { executor: '리뷰 한도 도달 — 사용자 선택 필요' }, next: ['사용자'], reason: 'workflow' };
+  if (status.roles.executor?.auto_stopped) return { alerts: { executor: status.roles.executor.qa_amendment ? 'QA 테스트 수정안 — 사용자 승인 필요' : '리뷰 한도 도달 — 사용자 선택 필요' }, next: ['사용자'], reason: 'workflow' };
   const completion = { recheck: '반영 검증 — 수정 재리뷰 자동 요청', apply: '재리뷰 회신 — 자동 반영', done: '반영 검증 — 자동 완료' }[status.roles.executor?.auto];
   const steps = { implementation_choices: '구현 완료 — 종합 검토 자동 요청', brief: '리뷰 회신 — 브리핑 후 자동 반영', review_decision: '계획 대비 리뷰 자동 반영', completion_choices: completion };
   if (steps[executor]) alerts.executor = steps[executor];
@@ -40,8 +40,9 @@ export function boardState(root, { env = process.env, live = () => liveRoles(roo
   const attention = [...status.errors], problems = [...status.errors], issue = text => { attention.push(text); problems.push(text); };
   if (status.checkpoint?.phase === 'blocked') attention.push(status.checkpoint.note);
   let seen = {}; try { seen = runtime.consoleView(root).seen; } catch {}
-  // A compacted story leaves the planner waiting for the user's next story, not summarizing.
-  const action = role => role === 'planner' && status.roles.planner?.action === 'plan_next' && status.roles.planner.result ? 'await_story' : status.roles[role]?.action ?? 'unknown';
+  // A compacted story leaves the planner waiting for the user's next story, not summarizing (on a clone the completion
+  // request stayed on the other machine, so the planner is simply done).
+  const action = role => role === 'planner' && ['plan_next', 'done'].includes(status.roles.planner?.action) && status.roles.planner.result ? 'await_story' : status.roles[role]?.action ?? 'unknown';
   const roles = selected.map(role => ({ role, agent: layout.agents[role], inbox: status.inbox[role]?.length ?? 0, mail: mail(status.inbox[role]), live: running.includes(role), state: action(role), seen: seen[role] ?? 0, ...roleSignals(root, role) }));
   for (const row of roles) if (!row.live && row.inbox) attention.push(`${row.role}: ${row.inbox} pending; role unavailable`);
   for (const role of Object.keys(status.inbox)) if (!selected.includes(role) && status.inbox[role]?.length) issue(`${role}: ${status.inbox[role].length} inbox messages; role not selected`);
@@ -71,7 +72,9 @@ export function boardState(root, { env = process.env, live = () => liveRoles(roo
   if (designPending && hints.reason === 'workflow') hints.next = ['designer'];
   const stage = { designPending, qaPending: Boolean(quality?.pending?.includes('qa')), blocked: status.phase === 'blocked' || hints.reason === 'blocked', started: Boolean(status.checkpoint?.approval) };
   let usage = null; try { usage = displayUsage(env); } catch {}
-  return { story, phase: status.phase, workflow: JSON.stringify(status.checkpoint ?? null), next: hints.next, attention: [...new Set(attention)], problems: [...new Set(problems)], stories, roles, stage, usage, diagnostics, session: sessionName(root), root };
+  // A finished story's result.md headline, "한 일" lines and checks for the complete screen.
+  let outcome = null; if (status.phase === 'done' && status.story) try { outcome = runtime.storyOutcome(root, status.story); } catch {}
+  return { story, phase: status.phase, outcome, workflow: JSON.stringify(status.checkpoint ?? null), next: hints.next, attention: [...new Set(attention)], problems: [...new Set(problems)], stories, roles, stage, usage, diagnostics, session: sessionName(root), root };
 }
 
 // The oldest unread inbox message, named for the console's bubble edge.
@@ -139,20 +142,28 @@ export function renderBoard(state, width = 80, height = Infinity, { color = fals
 }
 
 // Console rows: one alert, a status label, a pose and the context per role, plus the agent, the first line of the
-// latest reply and the next inbox message. victory is when this console saw the story finish.
+// latest reply and the next inbox message. victory is the finished story whose complete screen is up, and since when.
 export function consoleModel(state, { now = Date.now(), cursor = 0, notice = null, victory = null } = {}) {
   const roles = (state.roles ?? []).map(row => {
     const alert = roleAlert(row, now);
     return { role: row.role, status: roleStatus(row, now), alert, ctx: row.ctx ?? null, pose: pose(row, alert, now), agent: row.agent ?? null, reply: row.reply?.text ? row.reply : null, mail: row.mail ?? null };
   });
-  return { project: state.root ?? null, story: state.story ?? null, phase: state.phase, next: state.next ?? [], pipeline: pipeline({ story: state.story, phase: state.phase, roles: roles.map(row => row.role), ...state.stage }),
+  // Once its complete screen is closed (Enter), a finished story is history and the board waits for the next one.
+  const celebrating = Boolean(victory) && state.phase === 'done' && state.story === victory.story, waiting = state.phase === 'done' && !celebrating;
+  return { project: state.root ?? null, story: state.story ?? null, phase: state.phase, waiting, next: state.next ?? [], pipeline: pipeline({ story: state.story, phase: state.phase, roles: roles.map(row => row.role), ...state.stage, waiting }),
     problems: state.problems ?? [], notice, usage: state.usage ?? null, roles, selected: cursor,
-    victory: victory && state.phase === 'done' && state.story === victory.story && now - victory.at < VICTORY ? { tau: (now - victory.at) / 1000 } : null };
+    // settled: the planner has turned the story into result.md and waits for the next one; settledAt: since when, in scene time.
+    victory: celebrating
+      ? { story: state.story, tau: Math.max(0, now - victory.at) / 1000, settled: settled(state), outcome: state.outcome ?? null,
+        settledAt: Number.isFinite(victory.settledAt) ? Math.max(0, victory.settledAt - victory.at) / 1000 : null } : null };
 }
 
-// Console keys. There is deliberately no quit key: q, Esc and Ctrl-C do nothing.
-export function reduceConsoleKey(cursor, count, key) {
+const settled = state => (state.roles ?? []).find(row => row.role === 'planner')?.state === 'await_story';
+
+// Console keys. There is deliberately no quit key: q, Esc and Ctrl-C do nothing. Enter on the complete screen closes it.
+export function reduceConsoleKey(cursor, count, key, { celebrating = false } = {}) {
   if (key === 'r') return { cursor, action: 'refresh' };
+  if (celebrating && ['return', 'enter'].includes(key)) return { cursor, action: 'dismiss' };
   if (!count) return { cursor, action: null };
   if (key === 'down' || key === 'j') return { cursor: (cursor + 1) % count, action: 'move' };
   if (key === 'up' || key === 'k') return { cursor: (cursor - 1 + count) % count, action: 'move' };
@@ -188,11 +199,13 @@ export async function showConsole(root, { input = process.stdin, output = proces
   const present = tmux.present ?? ((role, focus) => presentRole(root, role, { focus, env }));
   const where = tmux.state ?? (() => consoleState(root, { env })), live = tmux.roles ?? (() => liveRoles(root, env));
   const track = quietTracker({ capture: tmux.capture ?? (role => captureRole(root, role, { env, history: 0 })) }), stall = stallTracker();
-  const alerts = alertNotifier(notify ?? notifyUser({ output }), env), color = colorMode(env);
+  const revive = reviveTracker({ screen: tmux.screen ?? (role => captureRole(root, role, { env, history: 0, escapes: true })), type: tmux.type ?? ((role, text) => typeRole(root, role, text, { env })) });
+  const ping = notify ?? notifyUser({ output }), alerts = alertNotifier(ping, env), color = colorMode(env);
   const errors = {}, timers = [], wasRaw = input.isRaw, wasFlowing = input.readableFlowing === true;
   // painted: rows on screen (null: unknown), so a frame rewrites only the rows that changed. celebrated: the done story at the last refresh.
   let state = { roles: [] }, cursor = 0, painted = null, pending = null, focused = null, legacy = null, tab = null, quiet = {}, stalled = {}, finished = false, done;
   let victory = null, celebrated;
+  const cleared = () => { try { return runtime.consoleView(root).cleared; } catch { return null; } };
   const completion = new Promise(resolve => { done = resolve; });
   const roles = () => state.roles.map(row => row.role);
   const attempt = (slot, label, task) => {
@@ -218,10 +231,16 @@ export async function showConsole(root, { input = process.stdin, output = proces
     const next = boardState(root, { env, live });
     for (const row of next.roles) Object.assign(row, { quiet: quiet[row.role] ?? false, stalled: stalled[row.role] ?? false });
     state = next; cursor = Math.min(cursor, Math.max(0, state.roles.length - 1));
-    // The complete scene plays once when this console sees a story finish, not for one already done at start.
+    // The complete screen stays up until the user closes it with Enter, also across console restarts. Only a finish seen
+    // while running notifies; a story already done at start just shows the screen.
     const story = state.phase === 'done' ? state.story : null;
-    if (story && celebrated !== undefined && story !== celebrated) victory = { story, at: Date.now() };
+    if (!story) victory = null;
+    else if (victory?.story !== story && cleared() !== story) {
+      victory = { story, at: Date.now() };
+      if (celebrated !== undefined && story !== celebrated && env.C2KIM_NOTIFY !== 'off') try { ping(story, '스토리 완료'); } catch {}
+    }
     celebrated = story;
+    if (victory && settled(state)) victory.settledAt ??= Date.now();
     painted = null;
   });
   const mark = role => attempt('seen', '확인 시각 기록 실패', () => runtime.markSeen(root, role));
@@ -239,13 +258,20 @@ export async function showConsole(root, { input = process.stdin, output = proces
       quiet = track(state.roles.map(row => ({ role: row.role, working: row.live && row.presence?.state === 'working' })));
       stalled = stall(state.roles.map(row => ({ role: row.role, key: row.hint === 'auto' && row.live && row.presence?.state === 'idle' ? row.state : null })));
       for (const row of state.roles) Object.assign(row, { quiet: quiet[row.role] ?? false, stalled: stalled[row.role] ?? false });
+      for (const role of revive(state.roles)) if (env.C2KIM_NOTIFY !== 'off') try { ping(role, '응답 오류 · 자동 재개'); } catch {}
     });
     try { alerts(consoleModel(state).roles); } catch {}
   };
   const show = (role, focus) => attempt('action', null, () => { present(role, focus); runtime.selectConsoleRole(root, role); });
   const onKey = (text, key = {}) => {
-    const name = key.ctrl || key.meta ? null : key.name ?? text, next = reduceConsoleKey(cursor, state.roles.length, name);
-    if (next.action === 'move') {
+    const name = key.ctrl || key.meta ? null : key.name ?? text, next = reduceConsoleKey(cursor, state.roles.length, name, { celebrating: Boolean(victory) });
+    if (next.action === 'dismiss') {
+      // Back to the roles with the planner picked: the next story starts there.
+      attempt('action', '완료 확인 기록 실패', () => runtime.clearCompletion(root, victory.story));
+      victory = null; clearTimeout(pending); pending = null;
+      if (roles().includes('planner')) { cursor = roles().indexOf('planner'); show('planner', false); }
+      painted = null;
+    } else if (next.action === 'move') {
       cursor = next.cursor; clearTimeout(pending);
       const role = roles()[cursor];
       pending = setTimeout(() => { pending = null; show(role, false); draw(); }, timing.debounce);

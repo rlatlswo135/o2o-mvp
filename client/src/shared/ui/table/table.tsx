@@ -45,16 +45,8 @@ export function TableBody(props: Omit<ComponentPropsWithRef<"tbody">, "className
   return <tbody {...props} />;
 }
 
-export type TableRowProps = Omit<ComponentPropsWithRef<"tr">, "className" | "style"> & {
-  /**
-   * 선택된 행의 강조 표시만 담당한다. 선택 의미는 행 안의 조작부(radio 등)가 전달한다.
-   * table에서 지원되지 않는 aria-selected는 붙이지 않는다.
-   */
-  selected?: boolean | undefined;
-};
-
-export function TableRow({ selected = false, ...props }: TableRowProps) {
-  return <tr {...props} {...stylex.props(styles.row, selected && styles.selectedRow)} />;
+export function TableRow(props: Omit<ComponentPropsWithRef<"tr">, "className" | "style">) {
+  return <tr {...props} {...stylex.props(styles.row)} />;
 }
 
 export type TableHeaderCellProps = Omit<
@@ -142,9 +134,6 @@ const styles = stylex.create({
       default: "transparent",
       ":hover": "#fdf8f4",
     },
-  },
-  selectedRow: {
-    backgroundColor: colors.selectedSurface,
   },
   cell: {
     paddingInline: {

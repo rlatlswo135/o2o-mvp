@@ -6,7 +6,7 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "vp dev --port 3000",
+    "start": "vp dev --port 3000",
     "build": "vp build",
     "preview": "vp preview",
     "check:fix": "vp check --fix",
@@ -24,6 +24,7 @@
     "@tanstack/react-query": "^5.104.1",
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
+    "@tanstack/react-table": "9.3.1",
     "flame-ui": "^1.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

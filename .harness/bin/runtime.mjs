@@ -432,6 +432,13 @@ function subrequest(root, sender, target, story, message) {
   check(body.story_hash === storyHash(root, story), `${body.type} names a different story revision; re-read story.md and send again.`);
 }
 
+// A free-text `send` note: no protocol kind and no typed c2h_* request inside.
+function plainNote(item) {
+  if (item.kind !== 'message') return false;
+  let body; try { body = JSON.parse(item.message); } catch { return true; }
+  return !(object(body) && typeof body.type === 'string' && body.type.startsWith('c2h_'));
+}
+
 function archive(root, role, id) {
   const data = locate(root, role, id);
   const folder = safe(root, '.harness/inbox', role);
@@ -447,6 +454,14 @@ function archive(root, role, id) {
 }
 export function ack(root, role, id) {
   return transaction(root, root => {
+    // On another machine (the inbox is not in Git) a finished story's completion request survives only as its result.md
+    // seal, so acknowledging it after the next planning checkpoint has nothing left to move.
+    idCheck(id);
+    if (role === 'planner' && !['', 'processed'].some(folder => exists(safe(root, '.harness/inbox/planner', folder, `${id}.json`)))) {
+      const stories = safe(root, '.harness/stories');
+      const story = exists(stories) && fs.readdirSync(stories).find(name => STORY.test(name) && compactedRecord(root, name)?.id === id);
+      if (story) return { id, story, kind: 'planning_request', closed: 'sealed in result.md' };
+    }
     const message = locate(root, role, id);
     if (message.kind === 'planning_request') {
       const current = loadState(root);
@@ -547,14 +562,16 @@ function loadState(root) {
       check(message.kind === 'implementation_request' && message.story === state.story, "Approval message is not this story's implementation request.");
       check(message.story_hash === state.story_hash, 'Approval message pins a different story revision.');
       check(JSON.stringify(message.design) === JSON.stringify(state.design), 'Approval message pins a different design.');
-      check(JSON.stringify(message.verification) === JSON.stringify(state.verification), 'Approval message pins a different QA contract.');
+      check(JSON.stringify(message.verification) === JSON.stringify(state.qa_amendments?.[0]?.from ?? state.verification), 'Approval message pins a different QA contract.');
     }
   }
   if (state.request_id) {
     const request = reviewRequest(root, state.request_id);
     check(request.story === state.story, 'Mismatched checkpoint review request.');
     if (state.verification) {
-      check(JSON.stringify(request.verification) === JSON.stringify(state.verification) && request.checks?.includes('qa'), 'Review request changed its approved QA verification scope.');
+      // The request answered before a user-approved amendment keeps the contract it was run against.
+      const pinned = [state.verification, ...(['reviewing', 'review_ready'].includes(state.phase) ? [] : (state.qa_amendments ?? []).map(item => item.from))];
+      check(pinned.some(item => JSON.stringify(request.verification) === JSON.stringify(item)) && request.checks?.includes('qa'), 'Review request changed its approved QA verification scope.');
       if (['reviewing', 'review_ready', 'review_decision'].includes(state.phase))
         check(request.baseline === state.verified_baseline && request.fingerprint === state.verified_fingerprint, 'QA request no longer matches verified implementation snapshot.');
     }
@@ -646,13 +663,33 @@ export function restoreApproved(root, story, { approved = false } = {}) {
 
 // A finished story keeps only result.md: what was done, in the planner's words. The planner's completion message, marked
 // compacted, is the seal; every other story file, message, baseline and verification copy is removed with the story.
+// result.md ends with the seal too, so the record travels with the story through Git while the inbox stays machine-local
+// (a clone has no planner message). Stories sealed before that carry only the message until setup marks their result.md.
+const SEAL = /\n<!-- c2h:sealed (\d{8}T\d{12}Z-[a-f0-9]{12}) -->\n$/;
+const sealLine = id => `\n<!-- c2h:sealed ${id} -->\n`;
 function compactedRecord(root, story) {
-  storyCheck(story);
   const sealed = allMessages(root, 'planner').filter(item => item.story === story && item.compacted);
   check(sealed.length <= 1, 'Conflicting compacted completion records.');
-  if (!sealed.length) return null;
-  check(exists(safe(root, storyDirectory(root, story), 'result.md')), 'Completed story lost its result.md.');
+  const result = safe(root, storyDirectory(root, story), 'result.md'), mark = exists(result) ? bytes(result).toString().match(SEAL)?.[1] : undefined;
+  if (!sealed.length) return mark ? { id: mark, story, compacted: true } : null;
+  check(exists(result), 'Completed story lost its result.md.');
+  check(!mark || mark === sealed[0].id, 'Conflicting compacted completion records.');
   return sealed[0];
+}
+// Setup: stories sealed only by their planner message get the result.md seal, so committing the project carries them.
+export function markSealedResults(root) {
+  const folder = safe(root, '.harness/stories');
+  if (!exists(folder) || !exists(safe(root, '.harness/inbox/planner'))) return [];
+  const marked = [];
+  for (const message of allMessages(root, 'planner').filter(item => item.compacted)) {
+    const result = safe(root, storyDirectory(root, message.story), 'result.md');
+    if (!exists(result)) continue;
+    const text = bytes(result).toString();
+    if (SEAL.test(text)) continue;
+    atomic(root, result, `${text.replace(/\n*$/, '')}\n${sealLine(message.id)}`);
+    marked.push(message.story);
+  }
+  return marked;
 }
 const finished = state => ({ story: state.story, story_hash: state.story_hash, phase: 'done', note: state.note,
   completion: { message_id: state.completion.message_id, consolidation_required: true }, updated: state.updated });
@@ -688,18 +725,42 @@ export function compactStory(root, story, { summary, approved = false, expectedS
     if (sealed) { clearStory(root, story, sealed.id); return { story, result }; }
     const state = loadState(root);
     check(state?.story === story && state.phase === 'done' && state.completion?.consolidation_required, 'Only the active completed DONE story can be consolidated.');
-    check(!openReviews(root).length && ROLES.every(role => !messages(root, role).some(item => item.story === story && item.id !== state.completion.message_id)), 'Unresolved pending role messages prevent consolidation.');
+    // Plain notes about the finished story ask nothing the protocol can still do; they close with it. Typed requests block.
+    const pending = ROLES.flatMap(role => messages(root, role).filter(item => item.story === story && item.id !== state.completion.message_id).map(item => ({ role, item })));
+    const notes = pending.filter(({ item }) => plainNote(item));
+    check(!openReviews(root).length && notes.length === pending.length, 'Unresolved pending role messages prevent consolidation.');
     const [summaryFile, summaryHash] = reportInfo(root, story, summary);
     check(summaryFile === `.harness/stories/${story}/records/result-draft.md`, 'Completion summary must be records/result-draft.md inside this story.');
     if (expectedSummaryHash !== undefined) check(matches(HASH, expectedSummaryHash) && expectedSummaryHash === summaryHash, 'Completion summary changed while choosing; ask again.');
     const text = bytes(safe(root, summaryFile)).toString(); textCheck(text, 4000, 'Completion summary');
     check(/^# \S/.test(text) && text.split('\n## 한 일\n')[1]?.split('\n## ')[0].trim(), 'Completion summary needs a "# SNNN — title" line and a "## 한 일" section.');
-    atomic(root, safe(root, result), `${text.trim()}\n`);
-    const message = locate(root, 'planner', state.completion.message_id), folder = safe(root, '.harness/inbox/planner'), pending = safe(root, folder, `${message.id}.json`);
-    atomic(root, exists(pending) ? pending : safe(root, folder, 'processed', `${message.id}.json`), encode({ ...message, compacted: true }));
+    // Before the seal: a sealed retry goes straight to clearStory, which refuses any message still pending.
+    for (const { role, item } of notes) archive(root, role, item.id);
+    // result.md with its seal line, then the planner message seal: each step leaves a state a retry can finish.
+    const message = locate(root, 'planner', state.completion.message_id), folder = safe(root, '.harness/inbox/planner'), waiting = safe(root, folder, `${message.id}.json`);
+    const stats = { rounds: reviewRounds(root, story), max: MAX_REVIEW_ROUNDS, qa: Boolean(state.verification) };
+    atomic(root, safe(root, result), `${text.trim()}\n\n<!-- c2h:stats ${JSON.stringify(stats)} -->\n${sealLine(message.id)}`);
+    atomic(root, exists(waiting) ? waiting : safe(root, folder, 'processed', `${message.id}.json`), encode({ ...message, compacted: true }));
     clearStory(root, story, message.id);
-    return { story, result };
+    return { story, result, ...(notes.length ? { closed: notes.map(({ role, item }) => ({ role, id: item.id })) } : {}) };
   });
+}
+
+// The complete screen's record of a finished story: the result.md headline and "한 일" lines, review rounds and whether
+// a QA contract ran. compact-story keeps those counts in result.md, since the messages they come from go with the story.
+const STATS = /\n<!-- c2h:stats (\{[^\n]*\}) -->\n/;
+export function storyOutcome(root, story) {
+  const folder = storyDirectory(root, story), file = safe(root, folder, 'result.md'), main = safe(root, folder, 'story.md');
+  const text = exists(file) ? bytes(file).toString() : '', heading = source => source.match(/^# (.+)$/m)?.[1].replace(/^\S+\s+[—–-]\s+/, '').trim() || null;
+  const done = (text.split('\n## 한 일\n')[1]?.split('\n## ')[0] ?? '').split('\n').map(line => line.match(/^\s*(?:[-*]|\d+\.)\s+(.+)/)?.[1].trim()).filter(Boolean);
+  let stats = null;
+  try { stats = JSON.parse(text.match(STATS)?.[1] ?? 'null'); } catch {}
+  if (!stats && !text) {
+    const state = loadState(root);
+    stats = { rounds: reviewRounds(root, story), max: MAX_REVIEW_ROUNDS, qa: Boolean(state?.story === story && state.verification) };
+  }
+  return { name: heading(text) ?? (exists(main) ? heading(bytes(main).toString()) : null), title: heading(text), done,
+    rounds: Number.isInteger(stats?.rounds) ? stats.rounds : null, max: Number.isInteger(stats?.max) ? stats.max : MAX_REVIEW_ROUNDS, qa: stats?.qa === true };
 }
 
 function completionCheckpoint(root, story) {
@@ -871,7 +932,17 @@ const qaResultsFile = (root, story, id) => recordFile(root, story, `qa-results-$
 function validateQaReceipt(root, request, receipt) {
   const file = qaResultsFile(root, request.story, request.id);
   check(receipt.results_hash === hash(bytes(file)), 'Submitted QA results changed after delivery.');
+  // Results against a contract the user later amended stay as delivered; its replaced test files are gone, and only a
+  // fresh QA run against the amended contract can pass the story.
+  if (supersededQa(root, request)) return json(file);
   return validatedQaResults(root, request, request.verification, { complete: true });
+}
+// Reads active.json directly: verifyResponse runs inside loadState, which checks active.json against checkpoint.md.
+function supersededQa(root, request) {
+  const active = safe(root, '.harness/active.json');
+  if (!exists(active)) return false;
+  const state = json(active);
+  return state.story === request.story && (state.qa_amendments ?? []).some(item => JSON.stringify(item.from) === JSON.stringify(request.verification));
 }
 
 function validatedQaResults(root, request, verification, options) {
@@ -904,6 +975,52 @@ export function qaResult(root, id, criterion, outcome, evidence) {
     qaResults(root, request.story, request, state.verification, record);
     atomic(root, file, encode(record));
     return record;
+  });
+}
+
+// An approved acceptance test or contract that is itself wrong (QA shows the defect is in the test, not the product) is
+// replaced only by the user's choice: QA saves the corrected files under records/qa-amend/ at their story-relative paths,
+// and qa-amend pins them in place of the approved ones. The user's QA answers (qa-values.json) are not amendable.
+const amendFolder = (root, story) => safe(root, storyDirectory(root, story), 'records', 'qa-amend');
+export function qaAmendDraft(root, story) {
+  const folder = amendFolder(root, story), files = [];
+  if (!exists(folder)) return files;
+  const walk = (dir, prefix) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) walk(path.join(dir, entry.name), `${prefix}${entry.name}/`);
+      else files.push(`${prefix}${entry.name}`);
+    }
+  };
+  walk(folder, '');
+  return files.sort();
+}
+export function qaAmend(root, story, { approved = false, note } = {}) {
+  check(approved === true, 'Explicit user approval is required to amend an approved QA contract.');
+  textCheck(note, 16000, 'Amendment note');
+  return transaction(root, root => {
+    const state = baseState(root, story, loadState(root));
+    check(state.verification && state.approval, 'Only an approved QA contract can be amended.');
+    check(['review_decision', 'fixing', 'implementation_done', 'blocked'].includes(state.phase) && !openReviews(root).length, 'Amend the QA contract after its QA report is delivered, never during a frozen review.');
+    const draft = qaAmendDraft(root, story);
+    check(draft.length, 'No amendment draft: QA saves the corrected qa-contract.json or acceptance/ files under records/qa-amend/.');
+    check(draft.every(name => name === 'qa-contract.json' || name.startsWith('acceptance/')), "Only qa-contract.json and acceptance/ files can be amended; the user's QA answers stay as approved.");
+    const folder = storyDirectory(root, story), targets = draft.map(name => safe(root, folder, name));
+    const before = targets.map(file => exists(file) ? bytes(file) : null);
+    let amended;
+    try {
+      draft.forEach((name, index) => atomic(root, targets[index], bytes(safe(root, amendFolder(root, story), name))));
+      amended = verificationContract(root, story, state.story_hash, state.verification.file);
+      check(JSON.stringify(amended) !== JSON.stringify(state.verification), 'The draft changes nothing in the approved QA contract.');
+    } catch (error) {
+      targets.forEach((file, index) => before[index] === null ? fs.rmSync(file, { force: true }) : atomic(root, file, before[index]));
+      throw error;
+    }
+    const next = { ...state, verification: amended, note: `User approved QA contract amendment: ${note}`,
+      qa_amendments: [...(state.qa_amendments ?? []), { from: state.verification, hash: amended.hash, files: draft, note, at: new Date().toISOString() }] };
+    saveApproved(root, next);
+    atomic(root, recordFile(root, story, 'qa-ready.json'), encode(amended));
+    fs.rmSync(amendFolder(root, story), { recursive: true, force: true });
+    return saveState(root, next);
   });
 }
 
@@ -1208,6 +1325,7 @@ export function checkpoint(root, story, phase, note, options = {}) {
       verifyResponse(root, request, response, !manualFixes);
       if (state.verification) {
         check(reviewFingerprint(root, request) === request.baseline, 'QA must verify the current corrected version; request fresh QA after fixes.');
+        check(JSON.stringify(request.verification) === JSON.stringify(state.verification), 'QA ran against a contract the user later amended; request fresh QA with quality --recheck.');
         validatedQaResults(root, request, state.verification, { complete: true, passing: true });
       }
       bytes(safe(root, storyDirectory(root, story), 'implementation.md'));
@@ -1217,7 +1335,7 @@ export function checkpoint(root, story, phase, note, options = {}) {
       const format = pending[0]?.fingerprint ?? (manualFixes ? verifiedFormat(state) : currentFormat());
       const baseline = sourceFingerprint(root, format);
       check(pending.length <= 1 && pending.every(data => data.story_hash === state.story_hash && data.baseline === baseline), 'Conflicting planning request; inspect interrupted completion.');
-      const id = pending[0]?.id ?? deliver(root, 'executor', 'planner', story, '스토리 완료가 기록됐다. 이 스토리에서 무슨 작업을 했는지만 records/result-draft.md에 짧게 쓴다(# 제목, ## 한 일, 필요하면 ## 바뀐 파일). 저장하면 result.md로 확정되고 나머지 스토리 파일은 지워진다. 그 뒤 사용자의 다음 스토리 요청을 기다린다. 다음 스토리를 먼저 계획하지 않는다.', { kind: 'planning_request', approved: true, consolidation_required: true, story_hash: state.story_hash, baseline, fingerprint: format });
+      const id = pending[0]?.id ?? deliver(root, 'executor', 'planner', story, '스토리 완료가 기록됐다. 이 스토리에서 무슨 작업을 했는지만 records/result-draft.md에 짧게 쓴다(# 제목은 사용자가 얻은 결과 한 줄, ## 한 일, 필요하면 ## 바뀐 파일). 저장하면 result.md로 확정되고 나머지 스토리 파일은 지워진다. 그 뒤 사용자의 다음 스토리 요청을 기다린다. 다음 스토리를 먼저 계획하지 않는다.', { kind: 'planning_request', approved: true, consolidation_required: true, story_hash: state.story_hash, baseline, fingerprint: format });
       state = { ...state, completion: { baseline, fingerprint: format, message_id: id, basis: manualFixes ? 'verified_fixes' : 'reviewed',
         ...(locate(root, 'planner', id).consolidation_required ? { consolidation_required: true } : {}) } };
       delete state.planning_from;
@@ -1272,15 +1390,18 @@ function resumed(root, role, fingerprint = sourceFingerprint) {
   // Every delivered result is applied against the plan; verified fixes get a fix-only recheck until the round limit.
   const verifiedFixes = role === 'executor' && action === 'completion_choices' && state.phase === 'implementation_done';
   const roundsLeft = verifiedFixes && reviewRounds(root, state.story) < MAX_REVIEW_ROUNDS;
-  const auto = role !== 'executor' ? undefined : action === 'implementation_choices' ? 'quality'
+  // A corrected acceptance test that QA saved stops the automatic steps until the user chooses (FLOW: QA 계약 수정).
+  const amendment = role === 'executor' && state.verification && ['review_decision', 'fixing', 'implementation_done'].includes(state.phase) && !open.length ? qaAmendDraft(root, state.story) : [];
+  const auto = role !== 'executor' || amendment.length ? undefined : action === 'implementation_choices' ? 'quality'
     : ['brief', 'review_decision', 'completion_choices'].includes(action) && !verifiedFixes ? 'apply'
     : verifiedFixes ? (roundsLeft ? 'recheck' : state.verification ? undefined : 'done') : undefined;
-  const stop = verifiedFixes && !auto ? `Review round limit reached (${MAX_REVIEW_ROUNDS}) and the QA contract needs a current-version PASS; ask the user (FLOW: 자동 완료가 막혔을 때).` : undefined;
+  const stop = amendment.length ? `QA saved a corrected approved acceptance test/contract under records/qa-amend/ (${amendment.join(', ')}); show the defect evidence and the diff, then ask the user (FLOW: QA 계약 수정).`
+    : verifiedFixes && !auto ? `Review round limit reached (${MAX_REVIEW_ROUNDS}) and the QA contract needs a current-version PASS; ask the user (FLOW: 자동 완료가 막혔을 때).` : undefined;
   const message = action === 'plan_next' ? pending.find(data => data.id === (state.completion?.message_id ?? state.planning_from)) : action === 'brief' ? response : pending.find(data => data.kind === 'implementation_request' && data.story === state.story && data.story_hash === state.story_hash);
   const completedStory = action === 'plan_next' ? message.story : state.story;
   const result = compactedRecord(root, completedStory) ? `.harness/stories/${completedStory}/result.md` : undefined;
   const cleanupPending = result && compactionPending(root, completedStory);
-  return { story: state.story, phase: state.phase, action, ...(auto ? { auto } : {}), ...(stop ? { auto_stopped: stop } : {}), checkpoint: state, ...(result ? { result, ...(cleanupPending ? { compaction_pending: true } : {}) } : {}), ...(request ? { request } : {}), ...(message ? { message } : {}),
+  return { story: state.story, phase: state.phase, action, ...(auto ? { auto } : {}), ...(stop ? { auto_stopped: stop } : {}), ...(amendment.length ? { qa_amendment: amendment } : {}), checkpoint: state, ...(result ? { result, ...(cleanupPending ? { compaction_pending: true } : {}) } : {}), ...(request ? { request } : {}), ...(message ? { message } : {}),
     ...(['blocked', 'implementation_done'].includes(state.phase) && state.verified_baseline && fingerprint(root, verifiedFormat(state)) !== state.verified_baseline
       ? { reverification_required: true } : {}) };
 }
@@ -1505,8 +1626,17 @@ export async function waitInbox(root, role, { timeout = 0, skip = new Set() } = 
   // Quiet polling rehashes only files whose stat changed; every gate that acts on the result verifies without the cache.
   const cache = new Map(), fingerprint = (root, format) => sourceFingerprint(root, format, cache);
   while (true) {
-    const state = readResume(root, role, fingerprint);
-    check(state.action !== 'blocked', state.error || 'Workflow blocked; inspect status.');
+    // A blocked or unreadable workflow is waited out, not reported by exiting: a waiter that died here would leave the
+    // role deaf to every request sent after the repair. The board shows the block meanwhile.
+    let state;
+    try {
+      state = readResume(root, role, fingerprint);
+      check(state.action !== 'blocked', state.error || 'Workflow blocked; inspect status.');
+    } catch (error) {
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) throw error;
+      await sleep(Math.min(2000, remaining)); continue;
+    }
     for (const message of state.busy ? [] : inbox(root, role).filter(data => kinds.includes(data.kind))) {
       if (skip.has(message.id)) continue;
       if (assistRole(role)) {
@@ -1559,18 +1689,20 @@ export function appendActivity(root, role, text, { source = 'pi-assistant' } = {
 }
 export function roleActivity(root, role) { const file = activityFile(root, role); if (!exists(file)) return { messages: [] }; const data = json(file, 2_000_000); check(Array.isArray(data.messages) && data.messages.length <= 20 && data.messages.every(m => object(m) && typeof m.text === 'string' && [...m.text].length <= 16000 && ACTIVITY_SOURCES.includes(m.source) && typeof m.at === 'string' && Number.isFinite(Date.parse(m.at)) && (m.clipped === undefined || typeof m.clipped === 'boolean')), 'Invalid activity log.'); return data; }
 function viewFile(root) { return safe(root, '.harness/console/view.json'); }
-// Console view: last cursor role plus when the user last looked at each role (drives the unread-reply alert).
+// Console view: last cursor role, when the user last looked at each role (drives the unread-reply alert) and the
+// finished story whose complete screen the user closed (it stays up until then).
 export function consoleView(root) {
   const roles = readLayout(root).roles, file = viewFile(root);
-  if (!exists(file)) return { role: roles[0], seen: {} };
-  const v = json(file, 4096), seen = v.seen ?? {};
-  check(roles.includes(v.role) && object(seen) && Object.entries(seen).every(([role, at]) => ROLES.includes(role) && Number.isSafeInteger(at) && at >= 0), 'Invalid console view.');
-  return { role: v.role, seen: Object.fromEntries(Object.entries(seen).filter(([role]) => roles.includes(role))) };
+  if (!exists(file)) return { role: roles[0], seen: {}, cleared: null };
+  const v = json(file, 4096), seen = v.seen ?? {}, cleared = v.cleared ?? null;
+  check(roles.includes(v.role) && object(seen) && Object.entries(seen).every(([role, at]) => ROLES.includes(role) && Number.isSafeInteger(at) && at >= 0) && (cleared === null || matches(STORY, cleared)), 'Invalid console view.');
+  return { role: v.role, seen: Object.fromEntries(Object.entries(seen).filter(([role]) => roles.includes(role))), cleared };
 }
 function saveView(root, view) { atomic(root, viewFile(root), encode(view)); return view; }
 function seenAt(view, role, at) { check(Number.isSafeInteger(at) && at >= 0, 'Invalid seen time.'); return { ...view.seen, [role]: Math.max(at, view.seen[role] ?? 0) }; }
-export function selectConsoleRole(root, role, at = Date.now()) { check(readLayout(root).roles.includes(role), 'Role not selected.'); const v = consoleView(root); return saveView(root, { role, seen: seenAt(v, role, at) }); }
-export function markSeen(root, role, at = Date.now()) { check(readLayout(root).roles.includes(role), 'Role not selected.'); const v = consoleView(root); return saveView(root, { role: v.role, seen: seenAt(v, role, at) }); }
+export function selectConsoleRole(root, role, at = Date.now()) { check(readLayout(root).roles.includes(role), 'Role not selected.'); const v = consoleView(root); return saveView(root, { ...v, role, seen: seenAt(v, role, at) }); }
+export function markSeen(root, role, at = Date.now()) { check(readLayout(root).roles.includes(role), 'Role not selected.'); const v = consoleView(root); return saveView(root, { ...v, seen: seenAt(v, role, at) }); }
+export function clearCompletion(root, story) { storyCheck(story); return saveView(root, { ...consoleView(root), cleared: story }); }
 // Context window use per role: display only, newest reading wins.
 const CONTEXT_SOURCES = ['pi', 'claude-statusline'];
 const contextFile = (root, role) => { roleCheck(role); check(readLayout(root).roles.includes(role), 'Role not selected.'); return safe(root, '.harness/context', `${role}.json`); };
@@ -1613,6 +1745,22 @@ function displayLock(root, record, operation) {
     }
     try { return operation(); } finally { fs.closeSync(fd); try { fs.unlinkSync(file); } catch {} }
   }
+}
+// A Claude role hears requests only through its background `listen`. The waiter records its pid so the Stop hook and the
+// console can tell a role that waits from one whose turn ended (API error, forgotten reopen) without one.
+const waiterFile = (root, role) => { roleCheck(role); return safe(root, '.harness/live', `${role}-waiter.json`); };
+export function registerWaiter(root, role, pid = process.pid) { atomic(root, waiterFile(root, role), encode({ pid })); }
+export function releaseWaiter(root, role, pid = process.pid) {
+  const file = waiterFile(root, role);
+  try { if (json(file, 256).pid === pid) fs.rmSync(file, { force: true }); } catch {}
+}
+export function waiterAlive(root, role) {
+  let pid; try { pid = json(waiterFile(root, role), 256).pid; } catch { return false; }
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); } catch (error) { if (error.code !== 'EPERM') return false; }
+  // A killed waiter leaves its record behind; the pid may since belong to another process.
+  try { return execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 }).includes(`listen ${role}`); }
+  catch { return false; }
 }
 // Whether the current turn answers the harness's own launch prompt; that reply needs no user check.
 const turnFile = (root, role) => { roleCheck(role); check(readLayout(root).roles.includes(role), 'Role not selected.'); return safe(root, '.harness/live', `${role}-turn.json`); };

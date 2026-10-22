@@ -40,6 +40,7 @@ export function claudeHooks(root, role) {
   const hook = event => [process.execPath, path.join(root, '.harness/bin/claude-hook.mjs'), event].map(quote).join(' ');
   const quick = event => [{ type: 'command', command: hook(event), async: true, timeout: 30 }];
   // Claude non-executor roles: the run boundary and the Stop-time forwarding run synchronously, since Stop can hand the model a reason to continue.
+  // Every role: the Stop-time waiter check, so a turn does not end with the role deaf to requests.
   const assist = role !== undefined && role !== 'executor';
   const sync = event => [{ type: 'command', command: hook(event), timeout: 120 }];
   return { statusLine: { type: 'command', command: hook('statusline') }, hooks: {
@@ -48,7 +49,7 @@ export function claudeHooks(root, role) {
     PostToolUse: [{ matcher: '*', hooks: quick('post') }],
     PermissionRequest: [{ matcher: '*', hooks: quick('permission') }],
     Notification: [{ hooks: quick('notify') }],
-    Stop: [{ hooks: quick('stop') }, ...(assist ? [{ hooks: sync('settle') }] : [])],
+    Stop: [{ hooks: quick('stop') }, ...(assist ? [{ hooks: sync('settle') }] : []), ...(role !== undefined ? [{ hooks: sync('waiter') }] : [])],
     StopFailure: [{ hooks: quick('failure') }],
   } };
 }
@@ -162,12 +163,25 @@ export function tabReturn({ env = process.env } = {}) {
   return 'ready';
 }
 
-// history 0 captures only the visible screen; the board hashes it to notice a stalled role.
-export function captureRole(root, role, { env = process.env, history = 300 } = {}) {
+function livePane(root, role, env) {
   if (!readLayout(root).roles.includes(role)) throw new Error('Role not selected.');
   const matches = panesIn(root, env).filter(pane => pane.role === role && pane.dead === '0');
   if (matches.length !== 1) throw new Error('Role pane unavailable or ambiguous.');
-  return execFileSync('tmux', ['capture-pane', '-p', '-J', '-t', matches[0].pane, ...(history > 0 ? ['-S', `-${history}`] : [])], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 3000, maxBuffer: 512 * 1024 });
+  return matches[0].pane;
+}
+
+// history 0 captures only the visible screen; the board hashes it to notice a stalled role. escapes keeps text styling.
+export function captureRole(root, role, { env = process.env, history = 300, escapes = false } = {}) {
+  return execFileSync('tmux', ['capture-pane', '-p', '-J', ...(escapes ? ['-e'] : []), '-t', livePane(root, role, env), ...(history > 0 ? ['-S', `-${history}`] : [])], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 3000, maxBuffer: 512 * 1024 });
+}
+
+// Types one line into a role's input and submits it, as the user would. Only the console's automatic resume uses it.
+export function typeRole(root, role, text, { env = process.env } = {}) {
+  const pane = livePane(root, role, env), tmux = (...args) => execFileSync('tmux', args, { env, stdio: 'ignore', timeout: 3000 });
+  tmux('send-keys', '-t', pane, '-l', '--', text);
+  // An Enter arriving with the text is taken as part of a paste (a newline), not as submit.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400);
+  tmux('send-keys', '-t', pane, 'Enter');
 }
 
 export function start(directory, { layout, attach = false, env = process.env, interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY), pickRoles = false, persistLayout = false } = {}) {

@@ -58,7 +58,7 @@ export function CustomersPage() {
         <CustomerList
           onEdit={handleEdit}
           editingId={editingId}
-          toolbar={
+          actions={
             <Button
               ref={openButtonRef}
               aria-haspopup="dialog"

@@ -70,6 +70,15 @@ async function roleHook(root, role, event, input) {
   else if (notice) process.stdout.write(JSON.stringify({ systemMessage: notice }) + '\n');
 }
 
+// Every Claude role, at Stop: a turn that ends without a live `listen` leaves the role deaf to requests sent meanwhile.
+// A waiter opened at the very end of the turn may still be starting, so it gets a moment to register. One reminder per stop.
+async function waiterHook(root, role, input) {
+  if (input.stop_hook_active === true) return;
+  for (let tries = 0; tries < 12; tries++) { if (runtime.waiterAlive(root, role)) return; await sleep(250); }
+  const check = role === 'executor' ? 'resume executor' : `next ${role}`;
+  process.stdout.write(JSON.stringify({ decision: 'block', reason: `대기(waiter)가 열려 있지 않다. 이대로 끝나면 이 역할에 오는 요청을 받지 못한다. node .harness/bin/c2h.mjs ${check} 로 남은 요청부터 확인해 처리하고, 끝나면 node .harness/bin/c2h.mjs listen ${role} --timeout 0 을 Bash run_in_background: true로 하나 연 뒤 대기한다. 사용자에게 받은 다른 지시는 그대로 이어간다.` }) + '\n');
+}
+
 async function main() {
   // Spawn time, not post-import time: Claude starts hook processes in event order, so startup jitter must not reorder them.
   const event = process.argv[2], at = Math.floor(performance.timeOrigin);
@@ -79,6 +88,7 @@ async function main() {
   let root; try { root = fs.realpathSync(process.env.C2H_PROJECT ?? input.cwd); } catch { return; }
   try {
     if (event === 'snapshot' || event === 'settle') await roleHook(root, role, event, input);
+    else if (event === 'waiter') await waiterHook(root, role, input);
     else if (event === 'statusline') process.stdout.write(statusLine(root, role, input, Date.now()) + '\n');
     else await recordEvent(root, role, event, input, at);
   } catch (error) { process.stderr.write(`c2h hook ${event}: ${error.message}\n`); }

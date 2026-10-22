@@ -5,7 +5,7 @@ import { ORPCError } from "@orpc/client";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { resolveTableState } from "@/shared/ui/data-table/data-table.tsx";
+import { resolveListState } from "@/shared/ui/data-table/data-table.state.ts";
 
 import {
   customerQueries,
@@ -45,14 +45,14 @@ function openCustomerList() {
   const observer = new QueryObserver(client, customerQueries.list());
   unsubscribers.push(observer.subscribe(() => {}));
   return {
-    screen: () => resolveTableState(observer.getCurrentResult()),
+    screen: () => resolveListState(observer.getCurrentResult()),
     reload: () => observer.refetch(),
     settled: () => vi.waitFor(() => expect(observer.getCurrentResult().isFetching).toBe(false)),
   };
 }
 
 function loaded(rows: ReadonlyArray<Customer>) {
-  return { kind: "loaded", rows, refreshFailed: false };
+  return { kind: "loaded", rows, refreshFailed: false, retrying: false };
 }
 
 // 폼처럼 스키마로 다듬어 저장
@@ -95,27 +95,27 @@ describe("고객 목록 조회", () => {
     {
       situation: "고객이 없는 서버",
       respond: async () => json([]),
-      expected: { kind: "loaded", rows: [], refreshFailed: false },
+      expected: { kind: "loaded", rows: [], refreshFailed: false, retrying: false },
     },
     {
       situation: "서버 오류(500)",
       respond: async () => json({}, 500),
-      expected: { kind: "failed" },
+      expected: { kind: "failed", retrying: false },
     },
     {
       situation: "서버에 닿지 않음",
       respond: async () => unreachable(),
-      expected: { kind: "failed" },
+      expected: { kind: "failed", retrying: false },
     },
     {
       situation: "id가 문자열인 응답",
       respond: async () => json([{ ...kim, id: "1" }]),
-      expected: { kind: "failed" },
+      expected: { kind: "failed", retrying: false },
     },
     {
       situation: "배열이 아닌 응답",
       respond: async () => json({ customers: [kim] }),
-      expected: { kind: "failed" },
+      expected: { kind: "failed", retrying: false },
     },
   ])("$situation: 화면 상태는 $expected.kind", async ({ respond, expected }) => {
     fetchMock.mockImplementation(respond);
@@ -125,16 +125,16 @@ describe("고객 목록 조회", () => {
     expect(list.screen()).toEqual(expected);
   });
 
-  it("조회 실패 뒤 다시 시도하면 다시 불러오는 중을 거쳐 목록이 나온다", async () => {
+  it("조회 실패 뒤 다시 시도하면 실패 표시를 둔 채 다시 시도 중을 거쳐 목록이 나온다", async () => {
     fetchMock
       .mockImplementationOnce(async () => json({}, 500))
       .mockImplementation(async () => json([kim]));
     const list = openCustomerList();
     await list.settled();
-    expect(list.screen()).toEqual({ kind: "failed" });
+    expect(list.screen()).toEqual({ kind: "failed", retrying: false });
 
     const reloading = list.reload();
-    expect(list.screen()).toEqual({ kind: "loading" });
+    expect(list.screen()).toEqual({ kind: "failed", retrying: true });
     await reloading;
     expect(list.screen()).toEqual(loaded([kim]));
   });
@@ -148,11 +148,21 @@ describe("고객 목록 조회", () => {
     await list.settled();
 
     await list.reload();
-    expect(list.screen()).toEqual({ kind: "loaded", rows: [kim], refreshFailed: true });
+    expect(list.screen()).toEqual({
+      kind: "loaded",
+      rows: [kim],
+      refreshFailed: true,
+      retrying: false,
+    });
 
-    // 재시도 중엔 실패 표시를 내린다
+    // 재시도 중에도 실패 표시를 두고 다시 시도 중만 알린다
     const reloading = list.reload();
-    expect(list.screen()).toEqual(loaded([kim]));
+    expect(list.screen()).toEqual({
+      kind: "loaded",
+      rows: [kim],
+      refreshFailed: true,
+      retrying: true,
+    });
     await reloading;
     expect(list.screen()).toEqual(loaded([kim]));
   });

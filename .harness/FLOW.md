@@ -38,7 +38,7 @@
 - 새 스토리 인계는 같은 세션의 **새 작업 경계**로 받는다. resume·inbox·스토리 파일만 기준으로 삼고 이전 스토리의 범위·승인·판단을 잇지 않는다. 세션 교체·tmux 키 주입은 하지 않는다.
 - 컨텍스트가 찼을 때만 사용자가 새로 시작한다: Claude는 `/clear` 뒤 "이어서 진행", Pi는 `/new` 뒤 `/harness`.
 - Pi 확장은 유휴·입력 없음일 때 inbox의 검증된 요청을 자동 전달한다. 전달이 안 됐으면 그 pane에서 `/harness`(designer/qa는 `/harness 요청`도 가능).
-- Claude executor는 resume 확인 후 `node .harness/bin/c2h.mjs listen executor --timeout 0`을 네이티브 Bash `run_in_background: true`로 **하나만** 연다. 셸 `&`·추가 에이전트·반복 폴링은 쓰지 않는다. 알림이 오면 출력 읽기 → resume 재검증 → 착수·브리핑 → 그 메시지만 `ack executor ID` → waiter 하나 재무장. 새 세션에서는 옛 waiter가 살아 있다고 가정하지 않는다. 권한·알림 실패는 숨기지 않는다.
+- Claude executor는 resume 확인 후 `node .harness/bin/c2h.mjs listen executor --timeout 0`을 네이티브 Bash `run_in_background: true`로 **하나만** 연다. 셸 `&`·추가 에이전트·반복 폴링은 쓰지 않는다. 알림이 오면 출력 읽기 → resume 재검증 → 착수·브리핑 → 그 메시지만 `ack executor ID` → waiter 하나 재무장. waiter는 하네스가 멈추거나 상태를 읽지 못하는 동안 끝나지 않고 풀릴 때까지 기다린다. 새 세션에서는 옛 waiter가 살아 있다고 가정하지 않는다. 권한·알림 실패는 숨기지 않는다. waiter 없이 턴을 끝내면 Stop 훅이 한 번 막는다: 남은 요청부터 확인하고 waiter를 연 뒤 끝낸다.
 
 ## 스토리 폴더
 
@@ -98,7 +98,7 @@
 1. `c2h_qa_interview(story)`로 사용자에게 가치·허용 불가 실패·독립 정답 기준·경계·비운영 환경을 묻는다. 기대값은 사용자에게서 받고 구현에서 추론하지 않는다.
 2. `qa-contract.json` version 1: `criteria:[{id,value,condition,oracle,cases:[str],required,irreversible,tests:[relative path]}]`. 실행 가능한 테스트는 `.harness/stories/STORY/acceptance/`에만 둔다. negative·재현 확인을 권장한다.
 3. `c2h_qa_ready(story, contract)`가 값·계약·테스트를 고정하고 planner에 알린다. 계약 준비 중에는 디자이너가 자동 인계하지 않는다.
-4. 승인 뒤 acceptance 테스트를 약화·삭제·건너뛰지 않는다. 바꾸려면 새 범위 승인이 필요하다. 런타임은 drift를 감지하지만 OS sandbox는 아니다.
+4. 승인 뒤 acceptance 테스트를 약화·삭제·건너뛰지 않는다. 테스트·계약 자체의 결함만 **QA 계약 수정**으로 고친다. 런타임은 drift를 감지하지만 OS sandbox는 아니다.
 
 ## 구현과 자동 구간
 
@@ -119,9 +119,19 @@ executor가 사용자 선택 없이 이어서 수행한다. 각 단계 전에 re
 
 마지막 검증 이후 소스가 바뀌면 완료할 수 없다. 리뷰 요청(종합 검토·수정 재리뷰)은 스토리당 3회까지이고 런타임이 그 이상을 거절한다. 한도에 닿으면 QA 계약이 없을 때는 검증된 수정으로 완료하고(`auto: done`), 있으면 `auto_stopped`로 멈춰 사용자에게 묻는다. 같은 수정이 연속 2회 실패하면 멈추고 묻는다.
 
+## QA 계약 수정
+
+승인된 acceptance 테스트나 qa-contract.json 자체가 틀려 올바른 제품도 통과할 수 없을 때만 쓴다(예: 테스트 서버가 쿼리 붙은 경로를 404로 응답). 기대값·완료 조건을 바꾸는 것은 수정이 아니라 새 범위 승인이다. 사용자 답변(qa-values.json)은 바꿀 수 없다.
+
+1. **QA**: 고정 파일은 그대로 두고 그 기준을 blocked로 기록한다. 고친 `qa-contract.json`·`acceptance/` 파일을 `records/qa-amend/` 아래 같은 상대 경로로 저장하고, 같은 검증 복사본에서 수정안을 실행한 명령·출력을 증거로 남긴다. 보고서 `## QA 계약 수정안`에 결함 근거(제품이 아니라 테스트가 틀린 이유)와 바뀐 점을 쓰고 제출한다.
+2. **executor**: resume이 `qa_amendment`(초안 파일 목록)와 `auto_stopped`를 보이면 자동 단계를 멈춘다. 결함 근거와 원본 대비 diff를 보여주고 AskUserQuestion 단일 선택으로 묻는다.
+   - **수정안 승인**: `node .harness/bin/c2h.mjs qa-amend STORY --approved --note '사용자 승인: 결함 요약'`. 수정된 계약이 고정되고(승인 스냅샷 포함) 초안 폴더는 지워진다. 이전 계약의 QA 결과는 남지만 완료 근거가 되지 않는다.
+   - **수정안 거절**: 초안 폴더 `records/qa-amend/`를 지우고 **자동 완료가 막혔을 때**의 선택으로 간다.
+3. 승인 뒤 다른 반영할 지적과 함께 `checkpoint STORY fixing --approved --note 'QA 계약 수정 반영 …'` → 검증 → `implementation_done` → 자동 구간 6(수정 재리뷰). QA가 수정된 계약으로 현재 버전을 다시 검증하고, 완료에는 그 PASS가 필요하다. 리뷰 한도에 닿았으면 사용자의 추가 검토 선택으로 진행한다.
+
 ## 자동 완료가 막혔을 때
 
-QA 필수 기준이 재검증 후에도 FAIL·blocked이거나, 같은 수정이 연속 2회 실패하거나, 계획을 바꿔야만 반영할 수 있는 지적이 있거나, resume이 `auto_stopped`(리뷰 한도)를 보이거나, done이 거부된 경우다. 이유를 implementation.md에 쓰고 AskUserQuestion 단일 선택으로 묻는다.
+QA 필수 기준이 재검증 후에도 FAIL·blocked이거나(테스트 결함이면 **QA 계약 수정**), 같은 수정이 연속 2회 실패하거나, 계획을 바꿔야만 반영할 수 있는 지적이 있거나, resume이 `auto_stopped`(리뷰 한도)를 보이거나, done이 거부된 경우다. 이유를 implementation.md에 쓰고 AskUserQuestion 단일 선택으로 묻는다.
 
 1. **확인 완료 · 스토리 종료**: `checkpoint STORY done --approved --note '사용자 완료 확인'`. 필수 게이트는 런타임이 여전히 확인한다.
 2. **문제 있음 · 수정**: 사용자가 말한 수정 범위를 기록하고 `checkpoint STORY fixing --approved --note '사용자 요청 수정'` → 검증 → implementation_done → 자동 구간 6.
@@ -158,7 +168,7 @@ reviewer는 확장이 전달한 요청으로 시작한다. 첫 구현이 끝났�
 2. planner는 story.md·implementation.md를 읽고 `records/result-draft.md`를 쓴다(4000자 이하).
 
    ```markdown
-   # S001 — 제목
+   # S001 — 사용자가 얻은 결과 한 줄 (완료 화면 제목)
 
    ## 한 일
    - 사용자 관점 결과 몇 줄
@@ -167,7 +177,7 @@ reviewer는 확장이 전달한 요청으로 시작한다. 첫 구현이 끝났�
    - (선택) 주요 경로
    ```
 
-3. 저장하면 확장이 `result.md`를 확정하고(직접 호출은 `c2h_story_next(story, summary)`) 스토리 폴더의 나머지 파일·관련 메시지·검증 기준을 지운다. index.md 링크는 `SNNN/result.md`로 바뀐다.
+3. 저장하면 확장이 `result.md`를 확정하고(직접 호출은 `c2h_story_next(story, summary)`) 스토리 폴더의 나머지 파일·관련 메시지·검증 기준을 지운다. index.md 링크는 `SNNN/result.md`로 바뀐다. 그 스토리에 남은 미처리 일반 메시지(`send`로 보낸 알림)는 함께 닫히고 결과의 `closed`에 남는다. 처리할 요청(리뷰·구현·`c2h_*` 요청)이 남아 있으면 정리가 거부된다.
 4. planner는 사용자에게 result.md 경로와 한 일을 알리고 **다음 스토리 요청을 기다린다**. 다음 스토리를 먼저 계획하지 않는다. 사용자가 요청하면 계획하고, 다음 스토리의 planning checkpoint를 저장한 **뒤** 완료 planning_request를 ack한다.
 5. `resume`에 `compaction_pending`이 있으면 확정 후 정리가 중단된 것이다. `compact-story STORY --summary .harness/stories/STORY/records/result-draft.md --approved`로 정리만 재시도한다. 지워진 원본은 복구하지 않는다.
 

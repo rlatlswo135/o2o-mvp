@@ -48,10 +48,27 @@
 
 ## 조회 목록
 
-- 목록 화면은 `@/shared/ui/data-table/data-table.tsx`의 `DataTable`로 그린다. 불러오는 중·실패·빈 결과·재조회 실패(이전 목록 유지) 판정과 다시 시도는 DataTable이 맡으므로 기능마다 조회 상태를 변환하는 함수를 만들지 않는다.
+- 목록 화면은 `@/shared/ui/data-table/data-table.tsx`의 `DataTable` compound로 조합한다. 행·페이지 모델은 TanStack Table이 맡는다. 불러오는 중·실패·빈 결과·재조회 실패(이전 목록 유지) 판정과 다시 시도도 DataTable이 맡으므로 기능마다 조회 상태를 변환하는 함수를 만들지 않는다.
+
+  ```tsx
+  <DataTable.Root title="고객 목록" query={query} columns={columns} getRowId={(c) => String(c.id)}>
+    <DataTable.Header actions={<Button>+ 고객 등록</Button>}>
+      <DataTable.Count>{(count) => `전체 ${count}명`}</DataTable.Count>
+      <DataTable.PageSize />
+    </DataTable.Header>
+    <DataTable.Content pending={…} error={<DataTable.RetryError message="…" />} empty={…} />
+    <DataTable.Footer>
+      <DataTable.Pagination />
+    </DataTable.Footer>
+  </DataTable.Root>
+  ```
+
 - `useQuery`는 목록 컴포넌트 안에서 부르고 결과를 그대로 `query`로 넘긴다. 같은 데이터가 필요한 다른 곳(건수 등)도 같은 query 객체로 `useQuery`를 부른다.
-- 목록에 대한 동작(등록 버튼 등)은 `toolbar`, 합계 등은 `footer` 슬롯에 둔다. 페이지 레이아웃에 걸친 패널은 슬롯에 넣지 않고 페이지에 둔다.
-- 선택·정렬 등 DataTable이 다루지 않는 표는 `table/`의 기본 요소를 직접 쓴다.
+- 열은 `createAppColumnHelper<T>()`로 만든다. 정적인 열은 모듈 범위에 두고, 화면 상태(수정 중인 행 등)를 읽는 열만 컴포넌트 안에서 만든다. 끝 정렬은 `meta: { align: "end" }`.
+- 열의 `cell`·`header`는 컴포넌트가 아니라 렌더 중에 호출되는 함수다. 안에서 hook을 쓰지 않는다. hook이 필요하면 별도 컴포넌트를 만들어 `cell`에서 그린다.
+- 목록에 대한 동작(등록 버튼 등)은 `Header`의 `actions`에 둔다. 페이지 레이아웃에 걸친 패널(Drawer 등)은 슬롯에 넣지 않고 페이지에 둔다.
+- 페이지 나눔은 기본으로 받은 전체 목록을 화면에서 나눈다. 서버 페이지네이션은 `Root`의 `pagination`(`state`·`onChange`·`rowCount`)으로 넘긴다.
+- 행 선택·행 강조 API는 두지 않는다. 행에서 여는 Drawer는 버튼의 `aria-expanded`로 상태를 알린다. 정렬 등 DataTable이 다루지 않는 표는 `table/`의 기본 요소를 직접 쓴다.
 
 ## 폼
 

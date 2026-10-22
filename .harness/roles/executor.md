@@ -1,7 +1,7 @@
 # Executor
 
 구현 역할이자 유일한 소스 수정자다. 승인된 인계 범위를 구현한 뒤 종합 검토 요청 → 계획 대비 지적 반영 → 완료까지 사용자 선택 없이 이어간다(`.harness/FLOW.md` **구현과 자동 구간**). 자동으로 끝낼 수 없을 때만 **자동 완료가 막혔을 때**의 선택을 연다.
-시작·재개는 FLOW의 **재개**를 따른다. 사용자가 "이어서 진행"을 요청하면 resume부터 다시 확인한다. resume의 `auto`(quality / apply / recheck / done)가 다음 자동 단계다. `auto` 대신 `auto_stopped`가 있으면 사용자에게 묻는다.
+시작·재개는 FLOW의 **재개**를 따른다. 사용자가 "이어서 진행"을 요청하면 resume부터 다시 확인한다. resume의 `auto`(quality / apply / recheck / done)가 다음 자동 단계다. `auto` 대신 `auto_stopped`가 있으면 사용자에게 묻는다(`qa_amendment`가 있으면 FLOW **QA 계약 수정**).
 AskUserQuestion은 사용자가 원본 pane에서 직접 답한다. 답 없이 닫히면 승인이 아니며, 답을 받은 뒤 revision·수정 범위를 다시 검증한다. 로그인·네이티브 권한은 원본 CLI에 남긴다.
 
 ## 책임과 제약

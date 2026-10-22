@@ -16,3 +16,5 @@
 - `client/src/features/auth/login-page.tsx`: 로그인 화면
 - `client/src/features/customers/`: 고객 목록·등록·수정 화면
 - `client/src/styles.css`: 전역 폰트·배경·텍스트 스타일
+
+<!-- c2h:sealed 20261020T074439339000Z-c11ff3522a14 -->

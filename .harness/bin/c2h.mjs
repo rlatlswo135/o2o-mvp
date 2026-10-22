@@ -28,10 +28,10 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
   } });
   // activity-append, live-set, context-set and usage-record are hook/extension plumbing and stay out of the help list:
   // role models read this list and must not write the console's display records themselves.
-  if (values.help || !positionals.length) return { usage: 'node .harness/bin/c2h.mjs [--project ROOT] COMMAND', commands: ['start [--attach] [--roles LIST] [--agents ROLE=claude|pi,...]', 'run ROLE [--agent claude|pi]', 'inbox ROLE', 'send --from ROLE --to ROLE --story ID --message TEXT', 'ack ROLE ID', 'handoff STORY --approved', 'checkpoint STORY PHASE --note TEXT [--approved]', 'resume ROLE', 'roles', 'status', 'review STORY [--again] [--approved]', 'cancel-review REQUEST --approved --note REASON', 'reply REQUEST --review PATH [--qa PATH]', 'wait REQUEST [--timeout SECONDS]', 'listen ROLE [--timeout SECONDS]', 'next ROLE [--explicit] [--request TEXT]', 'tool c2h_NAME [--args JSON | JSON on stdin]', 'design-direction STORY (--choice LABEL --note DETAILS | --carry) --story-hash HASH', 'design-ready STORY --design PATH --preview PATH [--needs-planning]', 'design-status STORY', 'quality STORY [--again|--recheck] [--roles LIST] [--approved]', 'changes STORY [--since approval|review]', 'submit-check REQUEST --from ROLE --review REPORT', 'quality-status REQUEST', 'compact-story STORY --summary PATH --approved', 'qa-interview STORY --answers JSON --story-hash HASH', 'qa-ready STORY --contract PATH', 'qa-status STORY', 'qa-result REQUEST --criterion ID --outcome pass|fail|blocked --evidence PATH', 'activity ROLE', 'live ROLE', 'board [--watch] [--console]', 'board-state', 'diagnose', 'unlock --approved', 'restore-approved STORY --approved', 'verification-workspace REQUEST', 'focus-role ROLE'] };
+  if (values.help || !positionals.length) return { usage: 'node .harness/bin/c2h.mjs [--project ROOT] COMMAND', commands: ['start [--attach] [--roles LIST] [--agents ROLE=claude|pi,...]', 'run ROLE [--agent claude|pi]', 'inbox ROLE', 'send --from ROLE --to ROLE --story ID --message TEXT', 'ack ROLE ID', 'handoff STORY --approved', 'checkpoint STORY PHASE --note TEXT [--approved]', 'resume ROLE', 'roles', 'status', 'review STORY [--again] [--approved]', 'cancel-review REQUEST --approved --note REASON', 'reply REQUEST --review PATH [--qa PATH]', 'wait REQUEST [--timeout SECONDS]', 'listen ROLE [--timeout SECONDS]', 'next ROLE [--explicit] [--request TEXT]', 'tool c2h_NAME [--args JSON | JSON on stdin]', 'design-direction STORY (--choice LABEL --note DETAILS | --carry) --story-hash HASH', 'design-ready STORY --design PATH --preview PATH [--needs-planning]', 'design-status STORY', 'quality STORY [--again|--recheck] [--roles LIST] [--approved]', 'changes STORY [--since approval|review]', 'submit-check REQUEST --from ROLE --review REPORT', 'quality-status REQUEST', 'compact-story STORY --summary PATH --approved', 'qa-interview STORY --answers JSON --story-hash HASH', 'qa-ready STORY --contract PATH', 'qa-status STORY', 'qa-result REQUEST --criterion ID --outcome pass|fail|blocked --evidence PATH', 'qa-amend STORY --approved --note REASON', 'activity ROLE', 'live ROLE', 'board [--watch] [--console]', 'board-state', 'diagnose', 'unlock --approved', 'restore-approved STORY --approved', 'verification-workspace REQUEST', 'focus-role ROLE'] };
   const root = fs.realpathSync(values.project ?? process.cwd());
   const [command, first, second] = positionals;
-  const arities = { board: 1, 'live-set': 2, 'context-set': 2, 'usage-record': 2, live: 2, 'board-state': 1, 'activity-append': 2, activity: 2, diagnose: 1, unlock: 1, 'restore-approved': 2, changes: 2, 'verification-workspace': 2, 'focus-role': 2, 'qa-interview': 2, 'qa-ready': 2, 'qa-status': 2, 'qa-result': 2, 'compact-story': 2, quality: 2, 'submit-check': 2, 'quality-status': 2, 'design-direction': 2, 'design-ready': 2, 'design-status': 2, start: 1, run: 2, inbox: 2, send: 1, ack: 3, handoff: 2, checkpoint: 3, resume: 2, roles: 1, status: 1, review: 2, 'cancel-review': 2, reply: 2, wait: 2, listen: 2, next: 2, tool: 2 };
+  const arities = { board: 1, 'live-set': 2, 'context-set': 2, 'usage-record': 2, live: 2, 'board-state': 1, 'activity-append': 2, activity: 2, diagnose: 1, unlock: 1, 'restore-approved': 2, changes: 2, 'verification-workspace': 2, 'focus-role': 2, 'qa-interview': 2, 'qa-ready': 2, 'qa-status': 2, 'qa-result': 2, 'qa-amend': 2, 'compact-story': 2, quality: 2, 'submit-check': 2, 'quality-status': 2, 'design-direction': 2, 'design-ready': 2, 'design-status': 2, start: 1, run: 2, inbox: 2, send: 1, ack: 3, handoff: 2, checkpoint: 3, resume: 2, roles: 1, status: 1, review: 2, 'cancel-review': 2, reply: 2, wait: 2, listen: 2, next: 2, tool: 2 };
   if (!arities[command] || positionals.length !== arities[command]) throw new Error('Unknown command or wrong arguments; use --help.');
   if (signals && !INTERACTIVE.includes(command)) for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(signal, () => process.exit(128 + os.constants.signals[signal]));
   const timeout = values.timeout === undefined ? undefined : Number(values.timeout);
@@ -63,6 +63,7 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
     case 'qa-ready': return runtime.qaReady(root, first, values.contract);
     case 'qa-status': return { ready: runtime.qaStatus(root, first) };
     case 'qa-result': return runtime.qaResult(root, first, values.criterion, values.outcome, values.evidence);
+    case 'qa-amend': return runtime.qaAmend(root, first, { approved: values.approved, note: values.note });
     case 'compact-story': return runtime.compactStory(root, first, { summary: values.summary, approved: values.approved, expectedSummaryHash: values['summary-hash'] });
     case 'design-direction': return runtime.designDirection(root, first, { choice: values.choice, note: values.note, expectedStoryHash: values['story-hash'], carry: values.carry });
     case 'design-ready': return runtime.designReady(root, first, { design: values.design, preview: values.preview, needsPlanning: values['needs-planning'] });
@@ -75,7 +76,7 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
     case 'run': runRole(root, first, values.agent); return undefined;
     case 'inbox': return runtime.inbox(root, first);
     case 'send': return { id: runtime.send(root, values.from, values.to, values.story, values.message) };
-    case 'ack': runtime.ack(root, first, second); return { archived: second };
+    case 'ack': { const acked = runtime.ack(root, first, second); return acked.closed ? { closed: acked.closed, id: second } : { archived: second }; }
     case 'handoff': return { id: runtime.handoff(root, first, { approved: values.approved, expectedStoryHash: values['story-hash'], sender: values.from,
       design: values.design, preview: values.preview, expectedDesignHash: values['design-hash'], expectedPreviewHash: values['preview-hash'], expectedQaHash: values['qa-hash'] }) };
     case 'checkpoint': return runtime.checkpoint(root, first, second, values.note ?? '', { approved: values.approved });
@@ -111,7 +112,11 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
       return typeof response === 'string' ? { id: response } : response;
     }
     case 'wait': return runtime.waitReview(root, first, { timeout: timeout ?? 1800 });
-    case 'listen': return runtime.waitInbox(root, first, { timeout: timeout ?? 0, skip: first === 'executor' ? undefined : dispatched(root, first) });
+    case 'listen': {
+      runtime.registerWaiter(root, first);
+      try { return await runtime.waitInbox(root, first, { timeout: timeout ?? 0, skip: first === 'executor' ? undefined : dispatched(root, first) }); }
+      finally { runtime.releaseWaiter(root, first); }
+    }
     // Claude roles only: the delivery prompt and c2h_* tools that the Pi extension provides (see claude-role.mjs).
     case 'next': {
       const found = nextPrompt(root, first, { explicit: values.explicit, request: values.request ?? '' });

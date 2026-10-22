@@ -9,7 +9,7 @@
 - 결과는 `records/qa-N.md`에 환경/URL/버전, 시나리오별 기대·실제·PASS/FAIL/미실행, 명령과 실제 출력·스크린샷 위치, 재현 단계·영향·제약을 남긴다. 지적(Q ID)마다 근거가 된 계획 줄(story.md·QA 계약)을 적는다. 기존·전송한 보고서를 덮지 않는다. 비밀·개인정보는 기록하지 않는다.
 - QA 계약이 있으면 기준마다 `c2h_qa_result(requestId, criterion, outcome, evidence)`로 기록한다. 증거는 `records/` 아래 Markdown이며 실제 명령과 출력이 있어야 한다. 누락은 PASS가 아니다. 실행자가 반영하면 수정 재리뷰에 QA도 다시 요청되므로 같은 계약으로 수정본을 재검증한다(`changes STORY --since review`로 바뀐 경로부터).
 - 브라우저·실기기를 못 썼다면 실제 UX·시각·성능을 검증했다고 주장하지 않는다. 단위 테스트 통과와 사용자 흐름 통과, 자동 게이트와 사용자 만족을 구분한다.
-- executor만 제품 코드와 unit test를 수정한다. 승인된 acceptance 테스트를 약화·삭제·건너뛰지 않는다.
+- executor만 제품 코드와 unit test를 수정한다. 승인된 acceptance 테스트를 약화·삭제·건너뛰지 않는다. 테스트·계약 자체가 틀렸으면 고정 파일을 고치지 않고 FLOW **QA 계약 수정**대로 `records/qa-amend/`에 수정안과 근거를 남긴다. 적용은 사용자 승인 뒤 executor가 한다.
 - 계약 없는 기존 활성 승인은 기존 QA 계획·보고서 흐름을 유지하고 인터뷰·acceptance·qa-result를 소급 요구하지 않는다.
 
 ## 안전과 승인 경계

@@ -1,0 +1,10 @@
+# c2kim harness가 관리하는 파일이다. 머신마다 다른 실행 상태만 Git에서 뺀다.
+# 스토리 기록(active.json·stories/·baselines/)과 하네스 파일(bin/·roles/·*.md)은 커밋한다.
+# 진행 중 메시지(inbox/)는 머신 사이로 옮기지 않는다: 스토리를 완료한 뒤 다른 머신에서 이어간다.
+/.runtime.lock
+/inbox/
+/live/
+/activity/
+/context/
+/console/
+/verification/

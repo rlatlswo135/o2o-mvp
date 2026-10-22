@@ -4,7 +4,8 @@ import path from 'node:path';
 import { fit, columns } from './terminal.mjs';
 import { elapsed, phases, actions } from './signals.mjs';
 import { character, miniCharacter } from './characters.mjs';
-import { ROLE_COLOR, FIRE, GOLD, BG, mix, hsl, hash, grid, put, px, blit, segments, sprite as pixelSprite, cheer, particles, castName, catchphrase, pxText, pxWidth } from './sprites.mjs';
+import { ROLE_COLOR, FIRE, GOLD, BG, mix, hsl, hash, grid, put, blit, segments, sprite as pixelSprite, particles, aura, castName } from './sprites.mjs';
+import { SCENE_WIDTH, SCENE_ROWS, victoryScene, crewOf, mvpOf } from './victory.mjs';
 export { phases, actions };
 
 const TOKENS = {
@@ -87,18 +88,43 @@ function small(text) {
 }
 const HARNESS = small('HARNESS');
 
-// shine: a light band sweeps the logo every five seconds and a live dot counts running roles (pixel cards only).
+// The logo plays one show per 6s slot, each fading in from the last: light sweep, rising fire, haki crackle,
+// thunder, color wave. face: a solid block (letter face) rather than its shadow lines.
+const SHOWS = ['sweep', 'fire', 'haki', 'thunder', 'wave'], SLOT = 6;
+function logoInk(show, face, x, y, t) {
+  const tick = Math.floor(t * 10), base = HEX[face ? 'accent' : 'shadow'];
+  switch (show) {
+    case 'sweep': { const d = Math.min(...[0, 1].map(k => Math.abs(x - y * 0.9 - (-8 + ((t / 1.6 + k / 2) % 1) * 80)))); return d < 3 ? mix(base, '#FFF2F8', (1 - d / 3) * (face ? 0.95 : 0.6)) : base; }
+    case 'fire': { const heat = Math.max(0, Math.min(0.99, y / 5 * 0.75 + 0.3 * Math.sin(x * 0.7 + t * 6) + hash(x * 7 + y * 13 + tick) * 0.35 - 0.15)); const c = FIRE[1 + Math.floor(heat * 5)]; return face ? c : mix(c, BG, 0.45); }
+    case 'haki': {
+      const seed = Math.floor(tick / 2), path = 2 + hash(seed) * 66 + (hash(seed * 7 + y) - 0.5) * 4, d = Math.abs(x - path), live = hash(seed * 3) > 0.3;
+      if (live && d < 1) return '#FFFFFF';
+      if (live && d < 2.5) return '#C084FC';
+      return face ? mix('#6B1FA8', '#A855F7', 0.5 + 0.5 * Math.sin(t * 5 + x * 0.3)) : '#2A0F45';
+    }
+    case 'thunder': {
+      const c = t % 1.5, seed = Math.floor(t / 1.5), path = 2 + hash(seed) * 66 + (hash(seed * 5 + y) - 0.5) * 3;
+      if (c < 0.1 || (c > 0.18 && c < 0.24)) return face ? '#FFF6B0' : '#C9B860';
+      if (c < 0.5 && Math.abs(x - path) < 1.5) return '#FFE14D';
+      return face ? mix('#5A6FB0', '#7FA0E8', 0.5 + 0.5 * Math.sin(x * 0.2 - t * 3)) : '#26305A';
+    }
+    default: { const c = hsl(x * 7 + y * 12 - t * 140, 85, 66); return face ? c : mix(c, BG, 0.5); }
+  }
+}
 function title(width, { compact = false, shine = null } = {}) {
   if (compact || width < 40) return [[[' C2KIM', 'bold', 'fg:accent'], [' HARNESS', 'fg:dim']]];
-  const p = shine ? (shine.t % 5) / 1.1 : 2, band = p <= 1 ? -8 + p * 62 : -99;
-  const paint = (ch, x, y) => {
-    if (ch === ' ') return [ch];
-    const token = ch === '█' ? 'accent' : 'shadow', d = Math.abs(x - y * 0.9 - band);
-    return d < 3 ? [ch, `fg:${mix(HEX[token], '#FFF2F8', (1 - d / 3) * (ch === '█' ? 0.95 : 0.6))}`] : [ch, `fg:${token}`];
+  const t = shine?.t ?? 0, slot = Math.floor(t / SLOT), fade = Math.min(1, (t % SLOT) / 0.4);
+  const ink = (face, x, y) => {
+    if (!shine) return HEX[face ? 'accent' : 'shadow'];
+    const now = logoInk(SHOWS[slot % SHOWS.length], face, x, y, t);
+    return fade < 1 ? mix(logoInk(SHOWS[(slot + SHOWS.length - 1) % SHOWS.length], face, x, y, t), now, fade) : now;
   };
-  const live = shine && width >= 78 ? [['  '], ['●', `fg:${mix('#7A1F3D', '#FF5F87', 0.5 + 0.5 * Math.sin(shine.t * 4))}`], [` 실행 중 ${shine.live}/${shine.total}`, 'fg:dim']] : [];
+  const paint = (ch, x, y) => ch === ' ' ? [ch] : [ch, `fg:${ink(ch === '█', x, y)}`];
+  // HARNESS sits to the right of the logo and takes the same show, as if the logo ran on into it.
+  const tail = y => [['  '], ...[...HARNESS[y - 2]].map((ch, x) => ch === ' ' ? [ch] : [ch, `fg:${ink(true, BIG[0].length + 2 + x, y)}`])];
+  const live = shine && width >= 78 ? [['  '], ['●', `fg:${mix('#7A1F3D', '#FF5F87', 0.5 + 0.5 * Math.sin(t * 4))}`], [` 실행 중 ${shine.live}/${shine.total}`, 'fg:dim']] : [];
   return BIG.map((row, y) => [[' '], ...[...row].map((ch, x) => paint(ch, x, y)),
-    ...(width >= 78 && y >= 2 && y <= 4 ? [['  '], [HARNESS[y - 2], 'fg:accent']] : y === 5 ? live : [])]);
+    ...(width >= 78 && y >= 2 && y <= 4 ? tail(y) : y === 5 ? live : [])]);
 }
 
 const SYMBOL = { finished: ['●', 'bold', 'fg:ok2'], done: ['●', 'fg:dim'], current: ['◐', 'bold', 'fg:accent'], next: ['○', 'fg:border'], blocked: ['✕', 'bold', 'fg:alert'] };
@@ -117,9 +143,11 @@ function pipelineRows(stages, width) {
   });
   return [rail, names];
 }
-// A finished story replaces the story line with a green banner whose frame shimmers, so completion is hard to miss.
+// Until its complete screen is closed, a finished story replaces the story line with a green banner whose frame shimmers;
+// when the complete card does not fit, the banner says how to close it.
 function doneBanner(state, width, frame, count) {
-  const text = [` ✔ ${state.story} 완료 `, 'bold', 'white', 'bg:okBg'], next = [`  다음 ${(state.next ?? []).join(' + ') || '확인'}`, 'fg:dim'];
+  const text = [` ✔ ${state.story} 완료 `, 'bold', 'white', 'bg:okBg'];
+  const next = state.victory ? [`  ${settledText(state.victory)} · Enter 보드로`, 'bold', 'fg:ok2'] : [`  다음 ${(state.next ?? []).join(' + ') || '확인'}`, 'fg:dim'];
   if (width < 24) return [[text]];
   const inner = width - 2, shine = k => `fg:ok${Math.min(3, Math.floor((0.5 + 0.5 * Math.sin(k * 0.35 - frame * 0.9)) * 4))}`;
   const edge = (left, right, offset) => [[left, 'bold', 'fg:ok2'], ...[...'━'.repeat(inner)].map((char, k) => [char, 'bold', shine(k + offset)]), [right, 'bold', 'fg:ok2']];
@@ -223,8 +251,9 @@ function box(G, x, y, w, h, line, colorAt, bold) {
 const fireAt = (t, tick) => (at, per) => { const wave = 0.5 + 0.5 * Math.sin(2 * Math.PI * (3 * at / per - t / 3)), flicker = hash(at * 31 + tick * 17); return FIRE[flicker > 0.94 ? 5 : Math.min(5, Math.floor((wave * wave * 0.7 + flicker * 0.4) * 6))]; };
 const pulse = t => mix(HEX.alert, '#5C2A2A', 0.5 + 0.5 * Math.sin(t * 7));
 const clip = (G, x, y, text, width, fg, bg, bold) => put(G, x, y, fit(text, Math.max(0, width)), fg, bg, bold);
-function blazeAt(G, x, y, text, width, t, tick) {
-  [...fit(text, width)].forEach((char, k) => { x = put(G, x, y, char, FIRE[2 + Math.min(3, Math.floor((0.5 + 0.5 * Math.sin(k * 0.9 - t / 0.3 * 0.8)) * 2.5 + hash(k * 13 + Math.floor(t / 0.3) * 7) * 1.5))], null, true); });
+// ink: four colors, dim to bright (default: the hot half of the fire palette).
+function blazeAt(G, x, y, text, width, t, tick, ink = FIRE.slice(2)) {
+  [...fit(text, width)].forEach((char, k) => { x = put(G, x, y, char, ink[Math.min(3, Math.floor((0.5 + 0.5 * Math.sin(k * 0.9 - t / 0.3 * 0.8)) * 2.5 + hash(k * 13 + Math.floor(t / 0.3) * 7) * 1.5))], null, true); });
 }
 const ago = (at, now) => now - at < 60000 ? '방금' : `${elapsed(at, now)} 전`;
 
@@ -271,17 +300,26 @@ function bubble(G, row, left, right, t, now) {
 }
 
 // Card: sprite on the left, name/status/alert/context in the middle, agent and reply bubble on the right (wide panes).
+// A working card plays its character's signature move (aura): tint, border, card-wide effects and the move's name.
 function pixelCard(row, selected, width, t, tick, now) {
   const S = pixelSprite(row.role, row.pose, t, tick), height = S.h / 2 + 2, G = grid(width, height), working = row.pose === 'working', alarmed = Boolean(row.alert) && !working;
-  const role = ROLE_COLOR[row.role], line = working || alarmed ? (selected ? DOUBLE : HEAVY) : selected ? HEAVY : THIN;
-  box(G, 0, 0, width, height, line, working ? fireAt(t, tick) : alarmed ? () => pulse(t) : () => selected ? HEX.accent : HEX.border, working || alarmed || selected);
+  const role = ROLE_COLOR[row.role], line = working || alarmed ? (selected ? DOUBLE : HEAVY) : selected ? HEAVY : THIN, move = working ? aura(row.role) : null;
+  const wide = width >= CARD, column = (wide ? 47 : width - 2) - 28, name = castName(row.role), right = wide ? 46 : width - 2;
+  if (move) {
+    // One tint per row keeps each row a single run for the terminal.
+    const [top, bottom] = move.tint(t);
+    for (let y = 1; y < height - 1; y++) { const bg = mix(top, bottom, (y - 1) / Math.max(1, height - 3)); for (let x = 1; x < width - 1; x++) G.cells[y * width + x].bg = bg; }
+  }
+  box(G, 0, 0, width, height, line, move ? move.edge(t, tick) : working ? fireAt(t, tick) : alarmed ? () => pulse(t) : () => selected ? HEX.accent : HEX.border, working || alarmed || selected);
   put(G, 2, 0, ` ${row.role} `, role, null, true);
+  move?.field?.(G, t, tick, right);
   blit(G, S, 2, 2);
-  particles(G, row.role, row.pose, 0, 0, t, tick);
-  const wide = width >= CARD, column = (wide ? 47 : width - 2) - 28, name = castName(row.role);
+  move?.over?.(G, t, tick, right);
+  particles(G, row.role, row.pose, 0, 0, t);
   const end = put(G, 28, 2, row.role, role, null, true);
   if (name) clip(G, end, 2, ` · ${name}`, 28 + column - end, mix(role, FG, 0.5), null, true);
-  if (working) blazeAt(G, 28, 3, row.status, column, t, tick); else clip(G, 28, 3, row.status, column, HEX.dim);
+  if (working) blazeAt(G, 28, 3, row.status, column, t, tick, move?.ink); else clip(G, 28, 3, row.status, column, HEX.dim);
+  if (move) blazeAt(G, 28, 5, move.move(t), column, t + 0.5, tick, move.ink);
   if (row.alert) {
     // The elapsed time goes first when the badge would not fit the column.
     const long = ` ${row.alert.badge}${Number.isFinite(row.alert.since) ? ` · ${elapsed(row.alert.since, now)}` : ''} `;
@@ -324,42 +362,7 @@ function chips(stages, width, t) {
   return segments(G);
 }
 
-// Story-complete scene: fireworks, confetti and the whole crew cheering in turn; each character says its line.
-export const VICTORY = 13000, VICTORY_ROWS = 18;
-function victory(state, width, tau) {
-  const G = grid(width, VICTORY_ROWS), roles = (state.roles ?? []).map(row => row.role);
-  G.clip = [1, 2, width - 2, (VICTORY_ROWS - 1) * 2 - 1];
-  if (tau < 0.3) for (const cell of G.cells) cell.bg = mix('#FFFFFF', BG, tau / 0.3);
-  const burst = Math.floor(tau / 0.7);
-  for (let j = burst - 2; j <= burst; j++) {
-    const a = tau - j * 0.7; if (j < 0 || a < 0 || a > 1.4) continue;
-    const cx = 6 + hash(j * 3 + 1) * (width - 12), cy = 4 + hash(j * 5 + 2) * 18, ink = hsl(hash(j * 9) * 360, 90, 66);
-    for (let k = 0; k < 16; k++) { const angle = Math.PI * 2 * k / 16, r = a * 13 * (1 - a * 0.25); px(G, cx + Math.cos(angle) * r * 1.4, cy + Math.sin(angle) * r + a * a * 5, mix(ink, BG, a / 1.4)); }
-  }
-  const CONFETTI = ['#FF5FA2', GOLD, '#87D7FF', '#AFD787', '#AF87FF', '#FFAF5F'];
-  for (let k = 0; k < 48; k++) {
-    const speed = 5 + hash(k * 11) * 9, hy = 2 + ((hash(k * 13) * 96 + tau * speed) % ((VICTORY_ROWS - 2) * 2)), ink = CONFETTI[k % 6];
-    px(G, 1 + hash(k * 7 + 3) * (width - 2) + Math.sin(tau * 3 + k) * 1.2, hy, Math.floor(tau * 8 + k) % 2 ? ink : mix(ink, '#000000', 0.35));
-  }
-  const slot = Math.min(18, Math.floor((width - 2) / Math.max(1, roles.length))), start = Math.floor((width - slot * roles.length) / 2);
-  const speaker = tau > 1.1 ? Math.floor((tau - 1.1) / 2.2) % Math.max(1, roles.length) : -1;
-  roles.forEach((role, at) => {
-    const k = (((tau - at * 0.15) % 1.6) + 1.6) % 1.6 / 1.6, hop = tau > 0.5 && k < 0.3 ? -Math.round(Math.sin(k / 0.3 * Math.PI) * 4) : 0, alt = Math.floor(tau * 5 + at) % 2;
-    const arms = tau < 0.5 ? ['down', 'down'] : at === speaker ? ['up', 'up'] : alt ? ['up', 'wave'] : ['wave', 'up'];
-    const x = start + at * slot + Math.floor((slot - 18) / 2);
-    for (let c = 0; c < 8 + hop; c++) px(G, x + 5 - hop / 2 + c, 30, '#2A2230');
-    blit(G, cheer(role, { arms, tau }), x, 12 + hop);
-  });
-  const text = 'STORY COMPLETE', left = Math.floor((width - pxWidth(text)) / 2);
-  pxText(G, text, left, 2, at => hsl(at * 24 + tau * 160, 90, 66), { shadow: '#3A1530', dy: at => { const t0 = 0.25 + at * 0.06; if (tau < t0) return null; const p = Math.min(1, (tau - t0) / 0.4), land = tau - t0 - 0.4; return Math.round(-14 * (1 - p) * (1 - p) - (land > 0 ? Math.abs(Math.sin(land * 10)) * 2 * Math.exp(-land * 6) : 0)); } });
-  G.clip = null;
-  const line = speaker >= 0 ? catchphrase(roles[speaker]) : null;
-  if (line) { const said = ` “${line}” `, center = start + speaker * slot + Math.floor(slot / 2); put(G, Math.max(1, Math.min(width - 1 - size(said), center - Math.floor(size(said) / 2))), 5, said, '#FFFFFF', mix(ROLE_COLOR[roles[speaker]], '#000000', 0.55), true); }
-  const footer = fit(`${state.story ?? ''} 완료 · 다음 ${(state.next ?? []).join(' + ') || '확인'} · ${Math.max(0, Math.ceil((VICTORY - tau * 1000) / 1000))}초 뒤 보드로`, width - 4);
-  put(G, Math.floor((width - size(footer)) / 2), VICTORY_ROWS - 2, footer, HEX.dim);
-  box(G, 0, 0, width, VICTORY_ROWS, DOUBLE, at => hsl(at * 5 - tau * 240, 85, 62), false);
-  return segments(G);
-}
+const settledText = party => party.settled ? 'result.md 확정' : '결과 정리 중';
 
 export function renderConsole(state, width = 80, height = 24, { color = null, now = Date.now() } = {}) {
   width = Math.max(1, width); height = Math.max(1, height);
@@ -372,28 +375,35 @@ export function renderConsole(state, width = 80, height = 24, { color = null, no
   const status = [[], ...(state.pipeline ? (pixel && chips(state.pipeline, cardWidth, t)) || pipelineRows(state.pipeline, width) : [])];
   const alerts = roles.filter(row => row.alert).length, count = alerts ? [` ! 알림 ${alerts} `, 'bold', 'white', 'bg:alert'] : null;
   const story = state.story ? [[' '], [state.story, 'bold'], [` · ${state.phaseLabel ?? phases[state.phase] ?? state.phase ?? ''} · 다음 ${(state.next ?? []).join(' + ') || '확인'}`, 'fg:dim']] : [[' 활성 스토리 없음', 'fg:dim']];
-  if (state.phase === 'done' && state.story) status.push(...doneBanner(state, cardWidth, frame, count));
+  const waiting = [[' '], ['다음 스토리 대기', 'bold'], [` · 지난 ${state.story} 완료 → result.md · 다음 ${(state.next ?? []).join(' + ') || 'planner'}`, 'fg:dim']];
+  if (state.phase === 'done' && state.story && state.waiting) status.push(count ? [...padded(waiting, Math.max(0, cardWidth - size(count[0]))), count] : waiting);
+  else if (state.phase === 'done' && state.story) status.push(...doneBanner(state, cardWidth, frame, count));
   else status.push(count ? [...padded(story, Math.max(0, cardWidth - size(count[0]))), count] : story);
   for (const problem of [state.notice, ...(state.problems ?? [])].filter(Boolean).slice(0, 2)) status.push([[` ! ${problem}`, 'fg:alert']]);
   const footer = [[width >= 44 ? ' ↑↓ 역할 · Tab 입력창 (CLI에서 Tab = 복귀)' : ' ↑↓ 역할 · Tab 입력창', 'fg:dim']];
-  // The big logo gives way to a one-line title when that is what lets the full cards (or the complete scene) fit.
-  const party = pixel && state.victory && cardWidth >= 72 ? state.victory : null, cardHeight = pixel ? 10 : 9;
-  const need = party ? VICTORY_ROWS : roles.length * cardHeight, rest = top.length + status.length + 1;
   const big = title(width, { shine: pixel ? { t, live: roles.filter(row => row.pose !== 'offline').length, total: roles.length } : null });
-  const header = [...(height - big.length - rest >= need || height - 1 - rest < need ? big : title(width, { compact: true })), ...top];
+  const compact = title(width, { compact: true });
+  // The complete card replaces the role cards and the status rows; problems and roles waiting on the user stay above it.
+  // It takes the tallest layout and header that fit, down to one title row over the compact card; else the banner below.
+  if (pixel && state.victory && width >= SCENE_WIDTH) {
+    const notes = [...roles.filter(row => row.alert).map(row => roleLine(row, false, frame, now)), ...status.filter(line => line[0]?.[0]?.startsWith(' ! '))];
+    const options = [[[...big, ...top], 'tall'], [[...compact, ...top], 'tall'], [[...compact, ...top], 'compact'], [[[...compact[0], ['   '], ...projectLine(state.project).slice(1)]], 'compact']];
+    const pick = options.find(([header, layout]) => header.length + notes.length + SCENE_ROWS[layout] + 1 <= height);
+    if (pick) {
+      const crew = crewOf(roles.map(row => row.role)), party = { ...state.victory, crew, mvp: mvpOf(state.story, crew), label: [state.story, state.victory.outcome?.name].filter(Boolean).join(' ') };
+      const lines = [...pick[0], ...notes, ...victoryScene(party, pick[1]), [[' ↑↓ 역할 · Tab 입력창', 'fg:dim']]];
+      return lines.map(segments => compose(segments, width, color).text).join('\n');
+    }
+  }
+  // The big logo gives way to a one-line title when that is what lets the full cards fit.
+  const cardHeight = pixel ? 10 : 9, need = roles.length * cardHeight, rest = top.length + status.length + 1;
+  const header = [...(height - big.length - rest >= need || height - 1 - rest < need ? big : compact), ...top];
   const room = Math.max(1, height - header.length - status.length - 1);
   const density = pixel && cardWidth >= 50 && roles.length * cardHeight <= room ? 'pixel' : cardWidth >= 34 && roles.length * 9 <= room ? 'full' : cardWidth >= 22 && roles.length * 5 <= room ? 'mini' : 'line';
-  let body;
-  if (party && room >= VICTORY_ROWS) {
-    // Role lines stay above the scene when there is room, so alerts are never hidden while it plays.
-    const list = room - VICTORY_ROWS > roles.length ? [...roles.map((row, index) => roleLine(row, index === selected, frame, now)), []] : [];
-    body = [...list, ...victory(state, cardWidth, party.tau)];
-  } else {
-    const blocks = roles.map((row, index) => density === 'line' ? [roleLine(row, index === selected, frame, now)]
-      : density === 'pixel' ? pixelCard(row, index === selected, cardWidth, t, tick, now) : card(row, index === selected, cardWidth, density, frame, now));
-    const start = blocks.slice(0, selected).flat().length, end = start + (blocks[selected]?.length ?? 0), offset = end > room ? end - room : 0;
-    body = blocks.flat().slice(offset, offset + room);
-  }
+  const blocks = roles.map((row, index) => density === 'line' ? [roleLine(row, index === selected, frame, now)]
+    : density === 'pixel' ? pixelCard(row, index === selected, cardWidth, t, tick, now) : card(row, index === selected, cardWidth, density, frame, now));
+  const start = blocks.slice(0, selected).flat().length, end = start + (blocks[selected]?.length ?? 0), offset = end > room ? end - room : 0;
+  const body = blocks.flat().slice(offset, offset + room);
   const lines = [...header, ...body, ...status, footer];
   return lines.slice(Math.max(0, lines.length - height)).map(segments => compose(segments, width, color).text).join('\n');
 }

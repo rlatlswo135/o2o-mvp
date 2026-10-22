@@ -15,3 +15,5 @@
 - `client/src/shared/ui/data-table/data-table.test.tsx`
 - `client/src/features/customers/customer-list.tsx`
 - `client/src/features/customers/customers-page.tsx`
+
+<!-- c2h:sealed 20261020T093001741000Z-58ccb10b7075 -->
