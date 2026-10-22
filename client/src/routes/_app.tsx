@@ -15,13 +15,17 @@ function AppShell() {
         <span {...stylex.props(styles.brand)}>
           <Brand />
         </span>
-        {/* 메뉴는 만든 화면(고객·시술)만 둔다 */}
+        {/* 메뉴는 만든 화면(고객·시술·예약)만 둔다 */}
         <nav aria-label="주요 메뉴" {...stylex.props(styles.nav)}>
           <Link to="/customers" activeProps={navLinkActive} inactiveProps={navLinkIdle}>
             고객
           </Link>
           <Link to="/treatments" activeProps={navLinkActive} inactiveProps={navLinkIdle}>
             시술
+          </Link>
+          {/* search 없이 열어 메뉴로 들어오면 항상 오늘 날짜다 */}
+          <Link to="/reservations" activeProps={navLinkActive} inactiveProps={navLinkIdle}>
+            예약
           </Link>
         </nav>
         {/* 보호되지 않은 로컬 확인용 화면이라는 사실 표시. 인증이 연결되면 지운다. */}

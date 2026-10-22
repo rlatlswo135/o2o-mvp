@@ -8,129 +8,154 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from "./routes/__root";
-import { Route as AppRouteImport } from "./routes/_app";
-import { Route as AppCustomersRouteImport } from "./routes/_app.customers";
-import { Route as AppTreatmentsRouteImport } from "./routes/_app.treatments";
-import { Route as IndexRouteImport } from "./routes/index";
-import { Route as LoginRouteImport } from "./routes/login";
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as AppCustomersRouteImport } from './routes/_app.customers'
+import { Route as AppReservationsRouteImport } from './routes/_app.reservations'
+import { Route as AppTreatmentsRouteImport } from './routes/_app.treatments'
 
 const IndexRoute = IndexRouteImport.update({
-  id: "/",
-  path: "/",
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const AppRoute = AppRouteImport.update({
-  id: "/_app",
+  id: '/_app',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const LoginRoute = LoginRouteImport.update({
-  id: "/login",
-  path: "/login",
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const AppCustomersRoute = AppCustomersRouteImport.update({
-  id: "/customers",
-  path: "/customers",
+  id: '/customers',
+  path: '/customers',
   getParentRoute: () => AppRoute,
-} as any);
+} as any)
+const AppReservationsRoute = AppReservationsRouteImport.update({
+  id: '/reservations',
+  path: '/reservations',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTreatmentsRoute = AppTreatmentsRouteImport.update({
-  id: "/treatments",
-  path: "/treatments",
+  id: '/treatments',
+  path: '/treatments',
   getParentRoute: () => AppRoute,
-} as any);
+} as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof IndexRoute;
-  "/login": typeof LoginRoute;
-  "/customers": typeof AppCustomersRoute;
-  "/treatments": typeof AppTreatmentsRoute;
+  '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/customers': typeof AppCustomersRoute
+  '/reservations': typeof AppReservationsRoute
+  '/treatments': typeof AppTreatmentsRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof IndexRoute;
-  "/login": typeof LoginRoute;
-  "/customers": typeof AppCustomersRoute;
-  "/treatments": typeof AppTreatmentsRoute;
+  '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/customers': typeof AppCustomersRoute
+  '/reservations': typeof AppReservationsRoute
+  '/treatments': typeof AppTreatmentsRoute
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport;
-  "/": typeof IndexRoute;
-  "/_app": typeof AppRouteWithChildren;
-  "/login": typeof LoginRoute;
-  "/_app/customers": typeof AppCustomersRoute;
-  "/_app/treatments": typeof AppTreatmentsRoute;
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/_app': typeof AppRouteWithChildren
+  '/login': typeof LoginRoute
+  '/_app/customers': typeof AppCustomersRoute
+  '/_app/reservations': typeof AppReservationsRoute
+  '/_app/treatments': typeof AppTreatmentsRoute
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/login" | "/customers" | "/treatments";
-  fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/login" | "/customers" | "/treatments";
-  id: "__root__" | "/" | "/_app" | "/login" | "/_app/customers" | "/_app/treatments";
-  fileRoutesById: FileRoutesById;
+  fileRoutesByFullPath: FileRoutesByFullPath
+  fullPaths: '/' | '/login' | '/customers' | '/reservations' | '/treatments'
+  fileRoutesByTo: FileRoutesByTo
+  to: '/' | '/login' | '/customers' | '/reservations' | '/treatments'
+  id:
+    | '__root__'
+    | '/'
+    | '/_app'
+    | '/login'
+    | '/_app/customers'
+    | '/_app/reservations'
+    | '/_app/treatments'
+  fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute;
-  AppRoute: typeof AppRouteWithChildren;
-  LoginRoute: typeof LoginRoute;
+  IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
+  LoginRoute: typeof LoginRoute
 }
 
-declare module "@tanstack/react-router" {
+declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    "/": {
-      id: "/";
-      path: "/";
-      fullPath: "/";
-      preLoaderRoute: typeof IndexRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/_app": {
-      id: "/_app";
-      path: "";
-      fullPath: "/";
-      preLoaderRoute: typeof AppRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/login": {
-      id: "/login";
-      path: "/login";
-      fullPath: "/login";
-      preLoaderRoute: typeof LoginRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/_app/customers": {
-      id: "/_app/customers";
-      path: "/customers";
-      fullPath: "/customers";
-      preLoaderRoute: typeof AppCustomersRouteImport;
-      parentRoute: typeof AppRoute;
-    };
-    "/_app/treatments": {
-      id: "/_app/treatments";
-      path: "/treatments";
-      fullPath: "/treatments";
-      preLoaderRoute: typeof AppTreatmentsRouteImport;
-      parentRoute: typeof AppRoute;
-    };
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/customers': {
+      id: '/_app/customers'
+      path: '/customers'
+      fullPath: '/customers'
+      preLoaderRoute: typeof AppCustomersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/reservations': {
+      id: '/_app/reservations'
+      path: '/reservations'
+      fullPath: '/reservations'
+      preLoaderRoute: typeof AppReservationsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/treatments': {
+      id: '/_app/treatments'
+      path: '/treatments'
+      fullPath: '/treatments'
+      preLoaderRoute: typeof AppTreatmentsRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
-  AppCustomersRoute: typeof AppCustomersRoute;
-  AppTreatmentsRoute: typeof AppTreatmentsRoute;
+  AppCustomersRoute: typeof AppCustomersRoute
+  AppReservationsRoute: typeof AppReservationsRoute
+  AppTreatmentsRoute: typeof AppTreatmentsRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppCustomersRoute: AppCustomersRoute,
+  AppReservationsRoute: AppReservationsRoute,
   AppTreatmentsRoute: AppTreatmentsRoute,
-};
+}
 
-const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren);
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
-};
+}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>();
+  ._addFileTypes<FileRouteTypes>()
