@@ -5,7 +5,7 @@ import { reservations, reservationTreatments } from '@db/schemas/reservations.sc
 import { treatments } from '@db/schemas/treatments.schema.js';
 import { Injectable } from '@nestjs/common';
 import { InjectDrizzle } from '@nestjs/drizzle';
-import { and, asc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 export type Transaction = Parameters<Parameters<NodePgDatabase['transaction']>[0]>[0];
@@ -24,31 +24,20 @@ type ReservationRow = typeof reservations.$inferSelect;
 export class ReservationsRepository {
   constructor(@InjectDrizzle() private readonly db: NodePgDatabase) {}
 
-  /** 예약 본문과 시술 스냅샷은 함께 바뀌어야 하므로 한 트랜잭션 안에서 다룬다. */
-  transaction<T>(work: (tx: Transaction) => Promise<T>): Promise<T> {
-    return this.db.transaction(work);
+  /** TODO: work을 DB 트랜잭션에 전달하고 결과를 반환한다. */
+  transaction<T>(_work: (tx: Transaction) => Promise<T>): Promise<T> {
+    return this.db.transaction(async (_tx) => {
+      throw new Error('TODO: pass transaction handle to work');
+    });
   }
 
   /** [from, to)에 시작한 예약. 시작 시각, 같으면 id 순이다. */
-  findStartingBetween(from: number, to: number, includeCancelled: boolean): Promise<Reservation[]> {
-    // 본문과 시술 스냅샷을 한 시점에서 읽는다. 사이에 끝난 수정이 섞이지 않게 한다
-    return this.db.transaction(
-      async (tx) => {
-        const rows = await tx
-          .select()
-          .from(reservations)
-          .where(
-            and(
-              gte(reservations.startAt, new Date(from)),
-              lt(reservations.startAt, new Date(to)),
-              includeCancelled ? undefined : isNull(reservations.cancelledAt),
-            ),
-          )
-          .orderBy(asc(reservations.startAt), asc(reservations.id));
-        return this.withTreatments(tx, rows);
-      },
-      { isolationLevel: 'repeatable read', accessMode: 'read only' },
-    );
+  findStartingBetween(
+    _from: number,
+    _to: number,
+    _includeCancelled: boolean,
+  ): Promise<Reservation[]> {
+    throw new Error('TODO: repeatable-read list transaction');
   }
 
   async findCustomer(tx: Transaction, id: number): Promise<ReservationCustomer | undefined> {
@@ -63,63 +52,38 @@ export class ReservationsRepository {
       .where(inArray(treatments.id, ids));
   }
 
-  /** 행을 잠그고 읽는다. 트랜잭션이 끝날 때까지 다른 수정·취소는 기다린다. */
-  async lock(tx: Transaction, id: number): Promise<Reservation | undefined> {
-    const rows = await tx.select().from(reservations).where(eq(reservations.id, id)).for('update');
-    const [reservation] = await this.withTreatments(tx, rows);
-    return reservation;
+  /** TODO: 예약 행을 잠그고 본문·시술 스냅샷을 읽는다. */
+  async lock(_tx: Transaction, _id: number): Promise<Reservation | undefined> {
+    throw new Error('TODO: lock reservation row');
   }
 
-  async insert(tx: Transaction, draft: ReservationDraft): Promise<Reservation> {
-    const [row] = await tx.insert(reservations).values(toColumns(draft)).returning();
-    if (!row) throw new Error('예약을 저장했지만 저장한 행을 돌려받지 못했어요.');
-    await this.insertTreatments(tx, row.id, draft.treatments);
-    return toReservation(row, draft.treatments);
+  /** TODO: 예약 본문을 저장한 뒤 같은 tx로 시술 스냅샷을 저장한다. */
+  async insert(_tx: Transaction, _draft: ReservationDraft): Promise<Reservation> {
+    throw new Error('TODO: insert reservation and treatment snapshots');
   }
 
-  /** 취소되지 않은 예약만 바꾼다. 시술 스냅샷은 통째로 바꾼다. */
-  async replace(tx: Transaction, id: number, draft: ReservationDraft): Promise<Reservation> {
-    const [row] = await tx
-      .update(reservations)
-      .set(toColumns(draft))
-      .where(and(eq(reservations.id, id), isNull(reservations.cancelledAt)))
-      .returning();
-    if (!row) throw new Error('잠근 예약을 바꾸지 못했어요.');
-    await tx.delete(reservationTreatments).where(eq(reservationTreatments.reservationId, id));
-    await this.insertTreatments(tx, id, draft.treatments);
-    return toReservation(row, draft.treatments);
+  /** TODO: 취소되지 않은 예약 본문·시술 스냅샷을 같은 tx로 교체한다. */
+  async replace(_tx: Transaction, _id: number, _draft: ReservationDraft): Promise<Reservation> {
+    throw new Error('TODO: replace reservation and treatment snapshots');
   }
 
-  /** 처음 취소할 때만 시각·사유를 채운다. 이미 취소된 기록은 덮어쓰지 않는다. */
+  /** TODO: 최초 취소만 기록하고 취소된 예약을 덮어쓰지 않는다. */
   async markCancelled(
-    tx: Transaction,
-    current: Reservation,
-    reason: string | null,
-    cancelledAt: Date,
+    _tx: Transaction,
+    _current: Reservation,
+    _reason: string | null,
+    _cancelledAt: Date,
   ): Promise<Reservation> {
-    const [row] = await tx
-      .update(reservations)
-      .set({ cancelledAt, cancelReason: reason })
-      .where(and(eq(reservations.id, current.id), isNull(reservations.cancelledAt)))
-      .returning();
-    if (!row) throw new Error('잠근 예약을 취소하지 못했어요.');
-    return toReservation(row, current.treatments);
+    throw new Error('TODO: mark reservation cancelled');
   }
 
+  /** TODO: 요청 순서대로 시술 스냅샷을 tx에 삽입한다. */
   private async insertTreatments(
-    tx: Transaction,
-    reservationId: number,
-    items: ReservationTreatment[],
+    _tx: Transaction,
+    _reservationId: number,
+    _items: ReservationTreatment[],
   ) {
-    await tx.insert(reservationTreatments).values(
-      items.map((item, position) => ({
-        reservationId,
-        position,
-        treatmentId: item.id,
-        name: item.name,
-        duration: item.duration,
-      })),
-    );
+    throw new Error('TODO: insert treatment snapshots');
   }
 
   private async withTreatments(
@@ -146,16 +110,6 @@ export class ReservationsRepository {
       ),
     );
   }
-}
-
-function toColumns(draft: ReservationDraft) {
-  return {
-    customerId: draft.customer.id,
-    customerName: draft.customer.name,
-    customerPhone: draft.customer.phone,
-    startAt: new Date(draft.startAt),
-    endAt: new Date(draft.endAt),
-  };
 }
 
 function toReservation(row: ReservationRow, items: ReservationTreatment[]): Reservation {

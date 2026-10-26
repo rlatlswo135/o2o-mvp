@@ -39,35 +39,19 @@ export class ReservationsService {
     return this.reservations.findStartingBetween(range.from, range.to, includeCancelled);
   }
 
-  createReservation(input: ReservationInput): Promise<CreateReservationResult> {
-    return this.reservations.transaction(async (tx) => {
-      const draft = await this.draft(tx, input, null);
-      if (draft.kind === 'rejected') return draft;
-      return { kind: 'created', reservation: await this.reservations.insert(tx, draft.draft) };
-    });
+  /** TODO: 예약 본문과 시술 스냅샷 저장을 하나의 트랜잭션으로 묶는다. */
+  createReservation(_input: ReservationInput): Promise<CreateReservationResult> {
+    throw new Error('TODO: create reservation transaction');
   }
 
-  updateReservation({ id, ...input }: ReservationUpdate): Promise<UpdateReservationResult> {
-    return this.reservations.transaction(async (tx) => {
-      const current = await this.reservations.lock(tx, id);
-      if (!current) return { kind: 'not_found' };
-      if (current.cancelledAt !== null) return { kind: 'already_cancelled', reservation: current };
-      const draft = await this.draft(tx, input, current);
-      if (draft.kind === 'rejected') return draft;
-      return { kind: 'updated', reservation: await this.reservations.replace(tx, id, draft.draft) };
-    });
+  /** TODO: 행 잠금 → 취소 여부 확인 → draft 계산 → 원자적 교체 순으로 처리한다. */
+  updateReservation(_input: ReservationUpdate): Promise<UpdateReservationResult> {
+    throw new Error('TODO: update reservation transaction');
   }
 
-  cancelReservation({ id, reason }: ReservationCancel): Promise<CancelReservationResult> {
-    return this.reservations.transaction(async (tx) => {
-      const current = await this.reservations.lock(tx, id);
-      if (!current) return { kind: 'not_found' };
-      if (current.cancelledAt !== null) return { kind: 'already_cancelled', reservation: current };
-      return {
-        kind: 'cancelled',
-        reservation: await this.reservations.markCancelled(tx, current, reason, new Date()),
-      };
-    });
+  /** TODO: 행 잠금 후 최초 취소만 기록한다. */
+  cancelReservation(_input: ReservationCancel): Promise<CancelReservationResult> {
+    throw new Error('TODO: cancel reservation transaction');
   }
 
   // 클라이언트가 보낸 이름·소요시간·종료 일시는 받지 않는다. 고객·시술을 확인해 스냅샷과 종료 일시를 정한다.
