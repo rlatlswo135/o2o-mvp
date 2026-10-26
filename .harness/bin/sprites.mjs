@@ -3,7 +3,7 @@
 import { clean, columns } from './terminal.mjs';
 
 export const BG = '#120E14';
-export const ROLE_COLOR = { planner: '#FFAF5F', executor: '#87D7FF', reviewer: '#AFD787', designer: '#FF87AF', qa: '#AF87FF' };
+export const ROLE_COLOR = { planner: '#FFAF5F', executor: '#87D7FF', reviewer: '#AFD787', designer: '#FF87AF', qa: '#AF87FF', refactor: '#B6FF58' };
 export const FIRE = ['#7A1712', '#C62D1F', '#FF6A13', '#FFA51F', '#FFE066', '#FFF4D6'];
 export const GOLD = '#FFD24A';
 
@@ -101,6 +101,9 @@ const alertMark = (S, t) => { srect(S, 18, 0, 4, 5, '#D9534F'); sp(S, 18, 5, '#D
 // Fan-art characters for a private repository; without color the console falls back to the box art.
 const SK = '#F6C9A0';
 const CHARS = {
+  refactor: { id: 'brook', name: '브룩', line: '요호호호! 라분!', arm: ['w', 'w'], hand: 'w', lid: 'w', eyes: [[4, 4], [8, 4]], look: [0, 0], eyeC: '#171923',
+    P: { a: '#262333', A: '#45405A', w: '#F8F4DC', k: '#171923', c: '#A3D9F5', b: '#65A6CF', g: '#FFD24A', n: '#303044' },
+    map: ['...aAaaaaAa...', '..aAaaaaaaAa..', '.aAaaaaaaaaAa.', '.aawwwwwwwwaa.', '.aawkkwwkkwaa.', '..awkkwwkkwa..', '...wwwkkwww...', '....wkwkwk....', '....cgwwgc....', '....cwwwwc....', '....ckkwkc....', '....cwwwwc....', '.....w..w.....', '....nw..wn....'] },
   planner: { id: 'nami', name: '나미', line: '보수는 두 배야!', arm: ['s', 's'], hand: 's', mouth: [6, 7, 2, '#E0607A'],
     P: { o: '#FF8A3D', O: '#D9662A', s: SK, b: '#3A7BD5', w: '#FFFFFF', j: '#4A6FA5', f: '#8B5E3C' },
     map: ['....oooooo....', '...oooooooo...', '..oOooooooOo..', '..oossssssoo..', '.oossssssssoo.', '.oossssssssoo.', '.oossssssssoo.', '.oo.ssssss.oo.', '.oo.bwbwbw.oo.', '.o..ssssss..o.', '....jjjjjj....', '....jj..jj....', '....jj..jj....', '...ff....ff...'] },
@@ -181,6 +184,20 @@ const zeus = t => { const step = Math.floor(t * 3) % (ROUTE.length + 5); return 
 const guild = t => { const c = t % 5; return c < 2.6 ? { hunt: true, in: 0 } : c < 3 ? { in: (c - 2.6) / .4 } : c < 4.5 ? { in: 1, pose: (c - 3) / 1.5 } : { in: 1 - (c - 4.5) / .5, out: true }; };
 const roll = g => g.pose !== undefined && g.pose < .08;
 
+// Idle pastimes, one per character, so a waiting board still looks like a ship's deck.
+// Zoro presses a barbell: height 0 racked at the chin, 1 locked out overhead.
+const press = t => { const p = (t % 2.4) / 2.4; return p < .15 ? 0 : p < .4 ? ease((p - .15) / .25) : p < .6 ? 1 : p < .85 ? 1 - (p - .6) / .25 : 0; };
+// Luffy works through a bone-in meat in four bites, holds up the clean bone, then a fresh one appears.
+const meal = t => { const n = Math.floor(t / 1.8), p = (t % 1.8) / 1.8, left = 4 - n % 5;
+  return { left, p, reach: left ? (p < .3 ? 0 : p < .45 ? ease((p - .3) / .15) : p < .55 ? 1 : p < .7 ? 1 - (p - .55) / .15 : 0) : 0, eaten: left ? 4 - left + (p > .5 ? 1 : 0) : 4 }; };
+// Nami's pinwheel: a steady spin with gusts (gust 0..1).
+const pinwheel = t => ({ a: 5 * t + 3 * Math.sin(.7 * t), gust: Math.max(0, Math.cos(.7 * t) - .3) / .7 });
+// Buggy's three-ball cascade: each ball flies two beats and rests one in a hand; the head pops off now and then.
+const BEAT = .28;
+const cascade = (t, i) => { const q = (t / BEAT + 2 * i) % 6; return q < 2 ? { from: 0, s: q / 2 } : q < 3 ? { hand: 1 } : q < 5 ? { from: 1, s: (q - 3) / 2 } : { hand: 0 }; };
+// A pixel eighth note, for Brook's violin.
+const note = (S, x, y, c) => [[1, 0], [2, 0], [1, 1], [0, 2], [1, 2]].forEach(([a, b]) => spE(S, x + a, y + b, c));
+
 const HAKI = ['#1A0826', '#3A0F5C', '#6B1FA8', '#A855F7'], ENMA = ['#120A14', '#2A0C22', '#4B1238', '#7A1846', '#B3204F'];
 const ENMA_AURA = ['#3B0A3A', '#6A1A6A', '#9A2A6A', '#E05080'], BLUE = ['#0B1E5B', '#1F4FD8', '#2F8BFF', '#5CC8FF', '#B8F0FF', '#FFFFFF'];
 const G5 = { y: '#FFFFFF', o: '#E6DCFF', r: '#FFFFFF', k: '#F4F0FF', b: '#E9E2F7' };
@@ -189,9 +206,60 @@ const ZEUS = ['...ww..ww..', '..wwwwwwww.', '.wwwwwwwwww', 'wwwwwwwwwww', '.SSSS
 // Per-character tweaks: pre sets pose fields, under draws behind the body, post adds props; vpre/vpost do the same for the cheering pose.
 // The working pose is each character's signature move.
 const CFX = {
+  brook: {
+    pre(o, pose, t) {
+      if (pose === 'idle') Object.assign(o, { armL: 'none', armR: 'none', bob: Math.floor(t * 1.2) % 2, look: 0 });
+      if (pose === 'working') Object.assign(o, { armL: 'none', armR: 'none', bob: Math.floor(t * 4) % 2 });
+    },
+    under(S, o, pose, t, frame) {
+      if (pose !== 'working') return;
+      // Soul King's giant lime skull floats behind the afro, its tail and arms curling around him.
+      const y0 = Math.floor(t * 3) % 2, pal = { g: '#72DF42', l: '#B6FF58', w: '#E8FFD0', k: '#19452E' };
+      ['..gglllgg..', '.glwwwwwlg.', 'glwkkwkkwlg', '.lwwkwkwwl.', '..lwkkkwl..', '...lkkkl...', '...lwlwl...'].forEach((row, y) => [...row].forEach((k, x) => { if (k !== '.') sp(S, 15 + x, y + y0, pal[k]); }));
+      for (let k = 0; k < 8; k++) { const x = 21 + Math.sin(t * 4 + k * .6) * 2, y = 7 + k; sp(S, x, y, '#B6FF58'); sp(S, x + 1, y, '#72DF42'); }
+      for (const side of [-1, 1]) for (let k = 0; k < 13; k++) {
+        const x = side < 0 ? 2 + Math.sin(k * .55 + t * 4) * 2 : 24 + Math.sin(k * .6 - t * 4), y = 14 - k;
+        sp(S, x, y, k % 3 ? '#72DF42' : '#E8FFD0'); sp(S, x + side, y, '#B6FF58');
+      }
+      for (let k = 0; k < 12; k++) if (hash(k * 7 + frame) > .45) sp(S, hash(k * 11 + frame) * 26, hash(k * 13 + frame) * 16, k % 2 ? '#B6FF58' : '#E8FFD0');
+    },
+    post(S, o, pose, t) {
+      if (pose === 'offline' || pose === 'sleeping') return;
+      if (pose === 'idle') {
+        // A violin under the jaw, the bow sawing across it, notes drifting off to the right.
+        const B = '#F8F4DC', vx = o.X(10), vy = o.Y(7), s = .5 + .5 * Math.sin(t * 4.2);
+        sline(S, o.X(10), o.Y(8), o.X(13), o.Y(11), B); sline(S, o.X(13), o.Y(11), vx + 7, vy + 1, B);
+        const pal = { b: '#B4532A', B: '#7A3418', h: '#E08A4A', k: '#2A1810', s: '#F2E2C0' };
+        ['.bb.......k', 'bhbbkkkkkk.', 'bbsb.......', '.bBb.......'].forEach((row, dy) => [...row].forEach((k, dx) => { if (k !== '.') sp(S, vx + dx, vy + dy, pal[k]); }));
+        const hx_ = o.X(6) + s * 3, hy = o.Y(12) - s * 3;
+        sline(S, o.X(3), o.Y(8), o.X(4), o.Y(11), B); sline(S, o.X(4), o.Y(11), hx_, hy, B);
+        seg((x, y, c) => sp(S, x, y, c), hx_, hy, hx_ + 9, hy - 9, '#E8D8B0'); sp(S, hx_, hy, '#3A2A20');
+        for (let k = 0; k < 2; k++) { const p = (t * .55 + k * .5) % 1; note(S, 19 + k * 3 + Math.round(Math.sin(p * 6 + k) * 1.5), 9 - Math.floor(p * 9), mix(k ? '#B6FF58' : '#E8FFD0', BG, p * .8)); }
+        return;
+      }
+      // The guitar sits beside the open coat so the ribs and thin bone limbs stay visible.
+      const x = o.X(8), y = o.Y(10), pal = { t: '#28BCA5', T: '#167F78', w: '#BFFFE8' };
+      if (pose === 'working') {
+        sline(S, o.X(3), o.Y(8), o.X(2), o.Y(11), '#F8F4DC');
+        sline(S, o.X(2), o.Y(11), x + 4, y + 1, '#F8F4DC');
+        sline(S, o.X(10), o.Y(8), x + 8, y - 3, '#F8F4DC');
+      }
+      ['.t..t..', 'tttttt.', 'Tttwttt', '.ttttt.', 'tt..tt.'].forEach((row, dy) => [...row].forEach((k, dx) => { if (k !== '.') sp(S, x + dx, y + dy - 1, pal[k]); }));
+      sline(S, x + 4, y + 1, x + 12, y - 4, '#167F78');
+      sline(S, x + 3, y, x + 12, y - 5, '#BFFFE8');
+      for (let k = 0; k < 3; k++) sp(S, x + 10 + k, y - 5 - (k % 2), '#28BCA5');
+      sp(S, x + 4, y + (pose === 'working' ? Math.floor(t * 8) % 2 : 0), '#F8F4DC');
+      sp(S, x + 8, y - 3, '#F8F4DC');
+    },
+    vpost(S, o, tau) { const y = 2 + Math.floor((tau * 3) % 4); sline(S, 18, y, 18, y + 3, '#B6FF58'); sp(S, 17, y + 3, '#B6FF58'); sp(S, 19, y, '#B6FF58'); },
+  },
   luffy: {
     pre(o, pose, t) {
-      if (pose === 'idle') { o.armL = o.armR = 'hip'; o.mouth = 'grin'; }
+      if (pose === 'idle') {
+        const m = meal(t), chew = m.left && m.p > .55;
+        Object.assign(o, { armL: 'hip', armR: 'none', look: m.reach > .5 ? -1 : 1, mouth: m.reach === 1 ? 'o' : chew ? (Math.floor(t * 7) % 2 ? 'smile' : null) : 'grin' });
+        if (!m.left) Object.assign(o, { eyes: 'happy', look: 0 });
+      }
       if (pose !== 'working') return;
       // Gear 5: hat and clothes go white, he bounces like rubber, then throws a giant fist.
       const g = gear5(t);
@@ -204,6 +272,18 @@ const CFX = {
         const r = Math.floor(t * 1.4) % 4, bx = o.X(8), by = o.Y(6) + 1, C = '#A8DCFF';
         if (r === 1) sp(S, bx, by, C);
         if (r >= 2) { srect(S, bx, by - 1, r, r, C); sp(S, bx, by - 1, '#FFFFFF'); }
+      }
+      if (pose === 'idle') {
+        // Meat on the bone: lift, chomp (the bite comes off the mouth side), chew with puffed cheeks.
+        const m = meal(t), hx_ = Math.round(lerp(o.X(14), o.X(9), m.reach)), hy = Math.round(lerp(o.Y(11), o.Y(12), m.reach)), W = '#F5F0E0';
+        sline(S, o.X(10), o.Y(8), hx_, hy, SK); sp(S, hx_, hy, SK);
+        sline(S, hx_, hy - 1, hx_, hy - 6, W); sp(S, hx_ - 1, hy - 7, W); sp(S, hx_ + 1, hy - 7, W);
+        ['.MMM.', 'MMhMM', 'MMMMM', '.MMM.'].forEach((row, dy) => [...row].forEach((k, dx) => {
+          if (k !== '.' && dx - (dy % 3 ? 0 : 1) >= m.eaten * 1.25) sp(S, hx_ - 2 + dx, hy - 5 + dy, k === 'h' ? '#D9864A' : dy === 3 ? '#7A3A1C' : '#A8532A');
+        }));
+        if (m.left && m.p > .55 && Math.floor(t * 7) % 2) [[1, 6], [12, 6], [2, 7], [11, 7]].forEach(([x, y]) => sp(S, o.X(x), o.Y(y), SK));
+        if (m.left === 4 && m.p < .25) for (let k = 0; k < 4; k++) spE(S, hx_ + [-3, 3, 0, 0][k], hy - 4 + [0, 0, -4, 3][k], frame % 2 ? '#FFFFFF' : GOLD);
+        if (m.reach === 1) sp(S, o.X(7), o.Y(9) + Math.floor(m.p * 20) % 3, '#A8532A');
       }
       if (pose !== 'working') return;
       // Cloud hair and the cloud ring on his shoulders boil every frame.
@@ -224,13 +304,23 @@ const CFX = {
     vpre(o) { o.mouth = 'grin'; },
   },
   zoro: {
-    pre(o, pose) {
-      if (pose === 'idle' || pose === 'sleeping') o.armL = o.armR = 'cross';
+    pre(o, pose, t) {
+      if (pose === 'sleeping') o.armL = o.armR = 'cross';
+      if (pose === 'idle') { const h = press(t), p = (t % 2.4) / 2.4; Object.assign(o, { armL: 'none', armR: 'none', look: 0, bob: p > .08 && p < .15 ? 1 : 0, mouth: h > .4 ? 'grin' : null }); }
       // Enma: bandana on, a sword in each hand and the third in his mouth.
       if (pose === 'working') Object.assign(o, { armL: 'out', armR: 'out', look: 1, recolor: { g: '#22222A', G: '#141418' } });
     },
     post(S, o, pose, t, frame) {
-      if (pose !== 'working') { [[11, 10, '#EDEDED'], [12, 9, '#EDEDED'], [12, 10, '#B03A37'], [13, 9, '#B03A37'], [12, 11, '#4A4A56'], [13, 10, '#4A4A56']].forEach(([x, y, c]) => sp(S, o.X(x), o.Y(y), c)); return; }
+      if (pose !== 'working') { [[11, 10, '#EDEDED'], [12, 9, '#EDEDED'], [12, 10, '#B03A37'], [13, 9, '#B03A37'], [12, 11, '#4A4A56'], [13, 10, '#4A4A56']].forEach(([x, y, c]) => sp(S, o.X(x), o.Y(y), c)); }
+      if (pose === 'idle') {
+        // Overhead press: sleeve to the elbow, forearm to the grip, a plated bar across both hands.
+        const h = press(t), by = Math.round(lerp(o.Y(8), 1, h)), ey = Math.round(lerp(o.Y(10), 5, h));
+        for (const [sx, ex, gx] of [[3, 1, 0], [10, 12, 13]]) { sline(S, o.X(sx), o.Y(8), o.X(ex), ey, '#EDEDED'); sline(S, o.X(ex), ey, o.X(gx), by + 1, SK); }
+        srect(S, o.X(-2), by, 18, 1, '#C8D0DA');
+        for (const x of [o.X(-2), o.X(14)]) { srect(S, x, by - 1, 2, 3, '#3A3A48'); sp(S, x, by - 1, '#5A5A6A'); }
+        if (h === 1) { const d = Math.floor((t % 2.4 - 1) * 8); if (d >= 0 && d < 4) sp(S, o.X(11), o.Y(3) + d, '#7FD4FF'); }
+      }
+      if (pose !== 'working') return;
       // Dark aura: violet-crimson flames lick up the silhouette; the eye burns red.
       for (const [x, y] of rim(S)) { const n = hash(x * 7 + Math.floor(y + t * 9) * 13 + frame * 3); if (n > .45) { sp(S, x, y, ENMA_AURA[Math.min(3, Math.floor((n - .45) / .55 * 4))]); if (n > .85) spE(S, x, y - 1, ENMA_AURA[0]); } }
       sp(S, o.X(8), o.Y(4), '#FF2A3A'); sp(S, o.X(8), o.Y(5), '#FF7A8A');
@@ -247,8 +337,17 @@ const CFX = {
     },
   },
   nami: {
-    pre(o, pose) { if (pose === 'idle' || pose === 'working') o.mouth = 'smile'; if (pose === 'working') { o.armR = 'up'; o.look = 1; } },
+    pre(o, pose) { if (pose === 'idle' || pose === 'working') o.mouth = 'smile'; if (pose === 'working') { o.armR = 'up'; o.look = 1; } if (pose === 'idle') { o.armR = 'out'; o.look = 1; } },
     post(S, o, pose, t) {
+      if (pose === 'idle') {
+        // A pinwheel on a stick; gusts spin it faster and blow streaks past it.
+        const w = pinwheel(t), [hx_, hy] = o.hands.R, cx = hx_ + 4, cy = hy - 5;
+        sline(S, hx_, hy - 1, cx, cy, '#C9A86A');
+        ['#FF8A3D', '#3A7BD5', '#FFD24A', '#FF87AF'].forEach((c, k) => { const b = w.a + k * Math.PI / 2; for (let r = 1; r <= 3; r++) for (let d = 0; d <= .8; d += .4) sp(S, cx + Math.cos(b + d * (4 - r) / 3) * r, cy + Math.sin(b + d * (4 - r) / 3) * r, c); });
+        sp(S, cx, cy, '#FFFFFF');
+        if (w.gust > 0) for (let k = 0; k < 3; k++) { const x = 15 + (t * 24 + k * 4) % 11, y = 2 + k * 4; for (let q = 0; q < 1 + w.gust * 3; q++) spE(S, x - q, y, mix('#B8F0FF', BG, q / 4)); }
+        return;
+      }
       if (pose !== 'working') return;
       // Clima-Tact raised to Zeus; each strike burns the next point of the route onto her map.
       const z = zeus(t), [hx_, hy] = o.hands.R;
@@ -270,11 +369,26 @@ const CFX = {
   },
   sanji: {
     // Ifrit Jambe: hands in his pockets, the right leg kicks in a blue-flame arc.
-    pre(o, pose) { if (pose === 'working') Object.assign(o, { look: 1, armL: 'none', armR: 'none', map: KICK }); },
+    pre(o, pose) {
+      if (pose === 'idle') Object.assign(o, { look: 1, armL: 'none', armR: 'out' });
+      if (pose === 'working') Object.assign(o, { look: 1, armL: 'none', armR: 'none', map: KICK });
+    },
     post(S, o, pose, t, frame) {
       if (pose !== 'offline') {
         sp(S, o.X(9), o.Y(7), '#F5F5F5'); sp(S, o.X(10), o.Y(7), '#F5F5F5'); sp(S, o.X(11), o.Y(7), frame % 4 < 2 ? '#FF7A2A' : '#FFB347');
         for (let k = 0; k < 2; k++) { const p = (t * .6 + k * .5) % 1; spE(S, o.X(11) + Math.round(Math.sin(p * 6 + k * 2)), o.Y(7) - 1 - Math.floor(p * 6), mix('#C8C0D0', BG, p)); }
+      }
+      if (pose === 'idle') {
+        // A pan over a small flame; every 2.2s the steak flips up end over end and lands back with a sizzle.
+        const p = (t % 2.2) / 2.2, [hx_, hy] = o.hands.R, py = hy - (p < .1 ? 1 : 0), air = p > .05 && p < .6, s = (p - .05) / .55;
+        sline(S, hx_ + 1, hy, hx_ + 3, py, '#2A2A33');
+        srect(S, hx_ + 4, py, 6, 1, '#5A5A6A'); srect(S, hx_ + 5, py + 1, 4, 1, '#2A2A33');
+        sp(S, hx_ + 6, py + 2, frame % 2 ? '#FF7A2A' : '#FFB347'); sp(S, hx_ + 7, py + 2, frame % 2 ? '#FFB347' : '#FF7A2A');
+        const fx = hx_ + 6, fy = air ? Math.round(py - 1 - 24 * s * (1 - s)) : py - 1, side = air && Math.floor(s * 6) % 2;
+        if (side) { sp(S, fx + 1, fy - 1, '#8B4A2B'); sp(S, fx + 1, fy, '#E8C8A0'); }
+        else { srect(S, fx, fy, 3, 1, '#8B4A2B'); sp(S, fx + (air ? 0 : 2), fy, '#E8C8A0'); }
+        if (!air) for (let k = 0; k < 2; k++) { const q = (t * .9 + k * .5) % 1; spE(S, fx + k * 2 + Math.round(Math.sin(q * 6 + k)), py - 2 - Math.floor(q * 5), mix('#E8E4F0', BG, q)); }
+        if (p > .6 && p < .75) for (let k = 0; k < 3; k++) if (hash(k * 7 + frame) > .4) spE(S, hx_ + 4 + hash(k * 11 + frame) * 6, py - 1 - hash(k * 13 + frame) * 2, GOLD);
       }
       if (pose !== 'working') return;
       // Wind up behind, sweep through to a high kick, hold, come back down; angles in radians, down = pi/2.
@@ -290,6 +404,8 @@ const CFX = {
   buggy: {
     pre(o, pose, t) {
       if (pose !== 'sleeping' && pose !== 'offline' && pose !== 'alert') o.mouth = 'smile';
+      // Bara Bara juggling: his hands float off to juggle, and every 7s his head pops off with a grin.
+      if (pose === 'idle') Object.assign(o, { armL: 'none', armR: 'none', look: 1, ...(t % 7 > 5.8 ? { lift: 1 + o.bob, mouth: 'grin', eyes: 'happy' } : {}) });
       if (pose !== 'working') return;
       // Bara Bara bug hunt with his hands flying loose, then the Cross Guild assembles behind him.
       const g = guild(t);
@@ -312,6 +428,17 @@ const CFX = {
       if (g.pose !== undefined) for (let q = 0; q < 10; q++) { const a = t * 4 + q * .63; sp(S, cx + 4 + Math.cos(a) * 6, 8 + Math.sin(a) * 3 - q * .2, q % 2 ? '#D9B26A' : '#B8924A'); }
     },
     post(S, o, pose, t, frame) {
+      if (pose === 'idle') {
+        const W = '#F5F5F5', c = '#C62828', hands = [[17, 12], [23, 12]];
+        sp(S, o.X(3), o.Y(9), c); sp(S, o.X(10), o.Y(9), c);
+        [GOLD, '#E53935', '#4FA3E0'].forEach((col, i) => {
+          const b = cascade(t, i), [x0, y0] = hands[b.from ?? b.hand], [x1] = hands[1 - (b.from ?? b.hand)];
+          const [x, y] = b.hand === undefined ? [lerp(x0, x1, b.s), y0 - 2 - 36 * b.s * (1 - b.s)] : [x0, y0 - 2];
+          srect(S, Math.round(x), Math.round(y), 2, 2, col); sp(S, Math.round(x), Math.round(y), '#FFFFFF');
+        });
+        hands.forEach(([x, y], k) => { const dip = Math.floor(t / BEAT + k) % 2; srect(S, x, y + dip, 2, 1, W); srect(S, x, y + 1 + dip, 2, 1, c); });
+        return;
+      }
       if (pose !== 'working') return;
       const g = guild(t), W = '#F5F5F5', c = '#C62828';
       if (!g.hunt) {
@@ -367,6 +494,18 @@ export function cheer(role, { arms = ['up', 'up'], tau = 0 } = {}) {
 // right is the last column effects may use, so the reply bubble stays clear.
 const inside = (G, right) => (x, y, c) => { if (x >= 1 && x <= right && y >= 2 && y <= G.h * 2 - 3) px(G, x, y, c); };
 const AURA = {
+  brook: {
+    move: () => '소울 킹 · 영혼의 선율', tint: () => ['#123224', '#0A201A'], ink: ['#72DF42', '#B6FF58', '#D9FF9B', '#E8FFD0'],
+    edge: (t, tick) => (at, per) => hash(at * 31 + tick * 17) > .92 ? '#E8FFD0' : mix('#268C50', '#B6FF58', .5 + .5 * Math.sin(at / per * Math.PI * 6 - t * 6)),
+    field(G, t, tick, right) {
+      const plot = inside(G, right), floor = G.h * 2 - 3;
+      for (let k = 0; k < 7; k++) {
+        const x = 2 + k * (right - 3) / 6;
+        for (let y = 3; y <= floor; y++) if ((y + k + tick) % 5 !== 0) plot(x + Math.sin(y * .5 - t * 4 + k) * 1.5, y, y % 4 ? '#268C50' : '#72DF42');
+        const p = (t * .8 + hash(k * 7)) % 1; plot(x, floor - p * (floor - 2), '#E8FFD0');
+      }
+    },
+  },
   luffy: {
     move: () => '기어 5 · 니카', tint: () => ['#2A1240', '#150A22'], ink: ['#A855F7', '#C084FC', '#E9D5FF', '#FFFFFF'],
     // Haoshoku: a dark violet ring where lightning crackles in short bright runs.

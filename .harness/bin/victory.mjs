@@ -18,8 +18,8 @@ const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 // After CALM the show turns into a quiet idle loop: waves, gulls, the poster's move, a hop or a line now and then and a
 // rare firework. The frame stops cycling, since its edge is on every row and would make the board rewrite all of them.
 const CALM = 7.0;
-const ORDER = ['planner', 'designer', 'executor', 'reviewer', 'qa'];
-const STAGE = { planner: '계획', designer: '디자인', executor: '구현', reviewer: '리뷰', qa: 'QA' };
+const ORDER = ['planner', 'designer', 'executor', 'refactor', 'reviewer', 'qa'];
+const STAGE = { planner: '계획', designer: '디자인', executor: '구현', reviewer: '리뷰', qa: 'QA', refactor: '개선' };
 export const crewOf = roles => ORDER.filter(role => roles.includes(role));
 // The MVP is a fixed pick per story, so a console restart shows the same poster.
 export const mvpOf = (story, crew) => crew[Math.floor(hash([...String(story)].reduce((sum, c) => sum * 31 + c.codePointAt(0) | 0, 7)) * crew.length)];

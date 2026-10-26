@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 2,
+  "runId": "run_mvowmuua_be3ab8",
+  "attemptId": "attempt_mvowmuua_8ca641",
+  "correlationId": "s035-scenario-policy-audit",
+  "backend": "inline",
+  "status": "completed",
+  "failureKind": null,
+  "cwd": "/Users/cjkim/Desktop/kims/o2o-mvp",
+  "startedAt": "2026-10-26T06:57:45.145Z",
+  "completedAt": "2026-10-26T06:58:42.135Z",
+  "durationMs": 56990,
+  "workspace": {
+    "mode": "shared",
+    "cwd": "/Users/cjkim/Desktop/kims/o2o-mvp",
+    "worktreePath": null
+  },
+  "sandbox": {
+    "enabled": false
+  },
+  "exitCode": null,
+  "signal": null,
+  "artifacts": [
+    {
+      "type": "stderr",
+      "path": ".pi/agent/runs/run_mvowmuua_be3ab8/attempts/attempt_mvowmuua_8ca641/stderr.log",
+      "bytes": 0
+    },
+    {
+      "type": "output",
+      "path": ".pi/agent/runs/run_mvowmuua_be3ab8/attempts/attempt_mvowmuua_8ca641/output.log",
+      "bytes": 7379
+    },
+    {
+      "type": "result",
+      "path": ".pi/agent/runs/run_mvowmuua_be3ab8/attempts/attempt_mvowmuua_8ca641/result.json"
+    }
+  ],
+  "metadata": {
+    "contextLengthExceeded": false,
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "usage": {
+      "input": 66388,
+      "output": 3932,
+      "cacheRead": 213888,
+      "cacheWrite": 0,
+      "reasoning": 995,
+      "totalTokens": 284208,
+      "cost": {
+        "input": 0.0066388,
+        "output": 0.001966,
+        "cacheRead": 0.00213888,
+        "cacheWrite": 0,
+        "total": 0.01074368
+      }
+    },
+    "stopReason": "stop"
+  }
+}

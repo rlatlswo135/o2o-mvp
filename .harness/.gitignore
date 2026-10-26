@@ -8,3 +8,5 @@
 /context/
 /console/
 /verification/
+# 독립 구조 자문·진행 중 수정만 보관. 관점 파일 refactor-prompt.md는 사용자 지침으로 커밋한다.
+/refactor/

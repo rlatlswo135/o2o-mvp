@@ -1,8 +1,16 @@
 import { customersContract } from "./customer/customers.contract.ts";
+import { reservationsContract } from "./reservation/reservations.contract.ts";
+import { treatmentsContract } from "./treatment/treatments.contract.ts";
 
 /** client와 server가 함께 쓰는 HTTP 계약. 도메인 계약을 여기서 모은다. */
 export const contract = {
   customers: customersContract,
+  treatments: treatmentsContract,
+  reservations: reservationsContract,
 };
 
 export * from "./customer/customers.schema.ts";
+export * from "./reservation/reservations.schema.ts";
+export * from "./reservation/reservations.snapshot.ts";
+export * from "./reservation/reservations.time.ts";
+export * from "./treatment/treatments.schema.ts";

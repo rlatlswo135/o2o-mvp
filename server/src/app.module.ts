@@ -7,6 +7,8 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { CustomersModule } from './customers/customers.module.js';
+import { ReservationsModule } from './reservations/reservations.module.js';
+import { TreatmentsModule } from './treatments/treatments.module.js';
 
 const orpcLogger = new Logger('ORPC');
 
@@ -34,6 +36,8 @@ function toResponseStatus(error: unknown): number {
       ],
     }),
     CustomersModule,
+    TreatmentsModule,
+    ReservationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

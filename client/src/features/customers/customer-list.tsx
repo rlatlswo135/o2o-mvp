@@ -15,35 +15,33 @@ import { customerQueries } from "./customers.api.ts";
 
 export type CustomerListProps = {
   actions?: ReactNode;
-  onEdit?: ((customer: Customer, trigger: HTMLButtonElement) => void) | undefined;
+  onEdit: (customer: Customer, trigger: HTMLButtonElement) => void;
   editingId?: number | undefined;
 };
 
 export function CustomerList({ actions, onEdit, editingId }: CustomerListProps) {
   const query = useQuery(customerQueries.list());
 
-  const columns = onEdit
-    ? [
-        ...baseColumns,
-        columnHelper.display({
-          id: "actions",
-          header: "관리",
-          meta: { align: "end" },
-          cell: ({ row: { original: customer } }) => (
-            <Button
-              variant="secondary"
-              size="small"
-              aria-label={`${customer.name} 고객 정보 수정`}
-              aria-haspopup="dialog"
-              aria-expanded={customer.id === editingId}
-              onClick={(event) => onEdit(customer, event.currentTarget)}
-            >
-              수정
-            </Button>
-          ),
-        }),
-      ]
-    : baseColumns;
+  const columns = [
+    ...baseColumns,
+    columnHelper.display({
+      id: "actions",
+      header: "관리",
+      meta: { align: "end" },
+      cell: ({ row: { original: customer } }) => (
+        <Button
+          variant="secondary"
+          size="small"
+          aria-label={`${customer.name} 고객 정보 수정`}
+          aria-haspopup="dialog"
+          aria-expanded={customer.id === editingId}
+          onClick={(event) => onEdit(customer, event.currentTarget)}
+        >
+          수정
+        </Button>
+      ),
+    }),
+  ];
 
   return (
     <DataTable.Root

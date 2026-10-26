@@ -39,14 +39,17 @@ export function verificationContract(root, story, storyHash, contractFile) {
   for (const criterion of contract.criteria) {
     check(criterion && typeof criterion.id === 'string' && /^[A-Z][A-Z0-9_-]{0,31}$/.test(criterion.id) && !ids.has(criterion.id), 'QA criterion IDs must be unique.'); ids.add(criterion.id);
     check(['value', 'condition', 'oracle'].every(key => text(criterion[key])) && typeof criterion.required === 'boolean' && typeof criterion.irreversible === 'boolean' && Array.isArray(criterion.cases) && criterion.cases.length > 0 && criterion.cases.length <= 20 && criterion.cases.every(text), 'QA criterion needs value, condition, independent oracle, cases and explicit risk flags.');
-    check(Array.isArray(criterion.tests) && criterion.tests.length > 0 && criterion.tests.length <= 20 && new Set(criterion.tests).size === criterion.tests.length, 'QA criterion needs executable independent tests.');
+    check(criterion.method === undefined || ['browser', 'test'].includes(criterion.method), 'QA criterion method must be browser or test.');
+    const browser = criterion.method === 'browser';
+    check(Array.isArray(criterion.tests) && (browser || criterion.tests.length > 0) && criterion.tests.length <= 20 && new Set(criterion.tests).size === criterion.tests.length, 'QA criterion needs executable independent tests unless its method is browser.');
     for (const test of criterion.tests) {
       check(typeof test === 'string' && test.startsWith(folder + 'acceptance/') && path.relative(root, path.resolve(root, test)).split(path.sep).join('/') === test, 'QA tests must stay in story acceptance directory.');
       tests[test] = hash(file(root, test));
     }
   }
   check(contract.criteria.some(item => item.required), 'QA contract must include a required criterion.');
-  return { story_hash: storyHash, file: contractFile, hash: hash(content), interview: { file: interviewFile, hash: hash(interviewBytes) }, tests };
+  return { story_hash: storyHash, file: contractFile, hash: hash(content), interview: { file: interviewFile, hash: hash(interviewBytes) }, tests,
+    ...(contract.criteria.some(item => item.required && item.method === 'browser') ? { browser: true } : {}) };
 }
 
 export function validateVerification(root, story, record) {

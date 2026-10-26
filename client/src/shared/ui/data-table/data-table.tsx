@@ -4,14 +4,14 @@ import type { ComponentPropsWithRef, ReactNode, RefObject } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { createContext, use, useId, useRef } from "react";
 
-import type { DataTableEngineOptions } from "./data-table.engine.js";
-import type { DataTableQuery, ListState } from "./data-table.state.js";
+import type { DataTableEngineOptions } from "./data-table.engine.ts";
+import type { DataTableQuery, ListState } from "./data-table.state.ts";
 
-import { EmptyState } from "../empty-state/empty-state.js";
-import { RetryErrorState } from "../error-state/retry-error-state.js";
-import { a11yStyles } from "../internal/control-styles.js";
-import { Select } from "../select/select.js";
-import { Skeleton } from "../skeleton/skeleton.js";
+import { EmptyState } from "../empty-state/empty-state.tsx";
+import { RetryErrorState } from "../error-state/retry-error-state.tsx";
+import { a11yStyles } from "../internal/control-styles.ts";
+import { Select } from "../select/select.tsx";
+import { Skeleton } from "../skeleton/skeleton.tsx";
 import {
   Table,
   TableBody,
@@ -19,12 +19,12 @@ import {
   TableHead,
   TableHeaderCell,
   TableRow,
-} from "../table/table.js";
-import { colors, radii } from "../theme.stylex.js";
-import { pageSizeOptions, useDataTableEngine, useTableContext } from "./data-table.engine.js";
-import { resolveListState } from "./data-table.state.js";
+} from "../table/table.tsx";
+import { colors, radii } from "../theme.stylex.ts";
+import { pageSizeOptions, useDataTableEngine, useTableContext } from "./data-table.engine.ts";
+import { resolveListState } from "./data-table.state.ts";
 
-export { createAppColumnHelper } from "./data-table.engine.js";
+export { createAppColumnHelper } from "./data-table.engine.ts";
 
 type ListContextValue = {
   title: string;

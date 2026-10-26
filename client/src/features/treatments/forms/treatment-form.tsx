@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { useForm } from "@tanstack/react-form";
 import { useId, useRef } from "react";
+import { flushSync } from "react-dom";
 
 import type { NoticeContent } from "@/shared/ui/notice/notice.tsx";
 
@@ -13,9 +14,11 @@ import { Input } from "@/shared/ui/input/input.tsx";
 import { LiveNotice } from "@/shared/ui/notice/notice.tsx";
 import { useSheetTitleId } from "@/shared/ui/sheet/sheet.tsx";
 
+import type { TreatmentFieldErrors } from "../treatments.api.ts";
 import type { TreatmentInput } from "../treatments.schema.ts";
 
-import { colors, controls } from "../../../shared/ui/theme.stylex.ts";
+import { colors } from "../../../shared/ui/theme.stylex.ts";
+import { treatmentFieldNames } from "../treatments.api.ts";
 import { treatmentInputSchema } from "../treatments.schema.ts";
 
 export type TreatmentFormValues = { name: string; duration: string; price: string };
@@ -27,11 +30,9 @@ export type TreatmentFormProps = {
   defaultValues: TreatmentFormValues;
   saving: boolean;
   notice: NoticeContent | null;
-  onSave: (input: TreatmentInput) => void;
+  onSave: (input: TreatmentInput, showErrors: (errors: TreatmentFieldErrors) => void) => void;
   onClose: () => void;
 };
-
-const fieldNames = ["name", "duration", "price"] as const;
 
 export function TreatmentForm({
   title,
@@ -50,12 +51,30 @@ export function TreatmentForm({
     defaultValues,
     validators: { onSubmit: treatmentInputSchema },
     // 확인 결과는 다듬은 값을 돌려주지 않아 다시 parse한다
-    onSubmit: ({ value }) => onSave(treatmentInputSchema.parse(value)),
+    onSubmit: ({ value }) => onSave(treatmentInputSchema.parse(value), showErrors),
     onSubmitInvalid: ({ formApi }) => {
-      const firstError = fieldNames.find((name) => formApi.getFieldMeta(name)?.errors.length);
-      rootRef.current?.querySelector<HTMLInputElement>(`input[name="${firstError}"]`)?.focus();
+      focusField(treatmentFieldNames.find((name) => formApi.getFieldMeta(name)?.errors.length));
     },
   });
+
+  const focusField = (name: string | undefined) => {
+    rootRef.current?.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.focus();
+  };
+
+  const showErrors = (errors: TreatmentFieldErrors) => {
+    // 오류 설명이 입력에 연결된 뒤 포커스를 옮기도록 동기로 그린다
+    flushSync(() => {
+      for (const name of treatmentFieldNames) {
+        const message = errors[name];
+        if (message === undefined) continue;
+        form.setFieldMeta(name, (meta) => ({
+          ...meta,
+          errorMap: { ...meta.errorMap, onSubmit: message },
+        }));
+      }
+    });
+    focusField(treatmentFieldNames.find((name) => errors[name] !== undefined));
+  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -165,17 +184,16 @@ export function TreatmentForm({
               </Button>
             </div>
           </div>
-          <p {...stylex.props(styles.footnote)}>
-            가상 데이터라 서버에 저장되지 않아요. 새로고침하면 등록한 시술이 사라져요.
-          </p>
         </div>
       </form>
     </div>
   );
 }
 
-function firstError(errors: ReadonlyArray<{ message: string } | undefined>) {
-  return errors[0]?.message;
+// 스키마 오류는 issue 객체, 서버 오류는 문자열
+function firstError(errors: ReadonlyArray<string | { message: string } | undefined>) {
+  const [error] = errors;
+  return typeof error === "string" ? error : error?.message;
 }
 
 const narrow = "@media (max-width: 719px)";
@@ -295,13 +313,5 @@ const styles = stylex.create({
   },
   noticeShown: {
     marginBottom: "12px",
-  },
-  footnote: {
-    marginTop: "12px",
-    marginBottom: 0,
-    marginInline: 0,
-    color: colors.textMuted,
-    fontSize: controls.hintFontSize,
-    lineHeight: "18px",
   },
 });

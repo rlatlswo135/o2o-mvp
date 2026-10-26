@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const ROLES = Object.freeze(['planner', 'executor', 'reviewer', 'designer', 'qa']);
+export const ROLES = Object.freeze(['planner', 'executor', 'reviewer', 'designer', 'qa', 'refactor']);
 export const DEFAULT_LAYOUT = Object.freeze({ roles: Object.freeze(['planner', 'executor', 'reviewer']) });
 export const AGENTS = Object.freeze(['claude', 'pi']);
 // The executor is the Claude Code role; every other role defaults to Pi.

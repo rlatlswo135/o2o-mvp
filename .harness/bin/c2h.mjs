@@ -19,7 +19,7 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: {
     project: { type: 'string' }, help: { type: 'boolean', short: 'h' },
     from: { type: 'string' }, to: { type: 'string' }, story: { type: 'string' }, message: { type: 'string' },
-    summary: { type: 'string' }, 'summary-hash': { type: 'string' },
+    summary: { type: 'string' }, 'summary-hash': { type: 'string' }, 'proposal-hash': { type: 'string' }, baseline: { type: 'string' }, 'refactor-prompt': { type: 'string' },
     answers: { type: 'string' }, contract: { type: 'string' }, 'qa-hash': { type: 'string' }, criterion: { type: 'string' }, outcome: { type: 'string' }, evidence: { type: 'string' },
     review: { type: 'string' }, qa: { type: 'string' }, 'story-hash': { type: 'string' }, timeout: { type: 'string' }, note: { type: 'string' },
     approved: { type: 'boolean', default: false }, again: { type: 'boolean', default: false }, recheck: { type: 'boolean', default: false }, attach: { type: 'boolean', default: false }, since: { type: 'string' },
@@ -28,10 +28,10 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
   } });
   // activity-append, live-set, context-set and usage-record are hook/extension plumbing and stay out of the help list:
   // role models read this list and must not write the console's display records themselves.
-  if (values.help || !positionals.length) return { usage: 'node .harness/bin/c2h.mjs [--project ROOT] COMMAND', commands: ['start [--attach] [--roles LIST] [--agents ROLE=claude|pi,...]', 'run ROLE [--agent claude|pi]', 'inbox ROLE', 'send --from ROLE --to ROLE --story ID --message TEXT', 'ack ROLE ID', 'handoff STORY --approved', 'checkpoint STORY PHASE --note TEXT [--approved]', 'resume ROLE', 'roles', 'status', 'review STORY [--again] [--approved]', 'cancel-review REQUEST --approved --note REASON', 'reply REQUEST --review PATH [--qa PATH]', 'wait REQUEST [--timeout SECONDS]', 'listen ROLE [--timeout SECONDS]', 'next ROLE [--explicit] [--request TEXT]', 'tool c2h_NAME [--args JSON | JSON on stdin]', 'design-direction STORY (--choice LABEL --note DETAILS | --carry) --story-hash HASH', 'design-ready STORY --design PATH --preview PATH [--needs-planning]', 'design-status STORY', 'quality STORY [--again|--recheck] [--roles LIST] [--approved]', 'changes STORY [--since approval|review]', 'submit-check REQUEST --from ROLE --review REPORT', 'quality-status REQUEST', 'compact-story STORY --summary PATH --approved', 'qa-interview STORY --answers JSON --story-hash HASH', 'qa-ready STORY --contract PATH', 'qa-status STORY', 'qa-result REQUEST --criterion ID --outcome pass|fail|blocked --evidence PATH', 'qa-amend STORY --approved --note REASON', 'activity ROLE', 'live ROLE', 'board [--watch] [--console]', 'board-state', 'diagnose', 'unlock --approved', 'restore-approved STORY --approved', 'verification-workspace REQUEST', 'focus-role ROLE'] };
+  if (values.help || !positionals.length) return { usage: 'node .harness/bin/c2h.mjs [--project ROOT] COMMAND', commands: ['start [--attach] [--roles LIST] [--agents ROLE=claude|pi,...] [--refactor-prompt FILE]', 'run ROLE [--agent claude|pi]', 'inbox ROLE', 'send --from ROLE --to ROLE --story ID --message TEXT', 'ack ROLE ID', 'handoff STORY --approved', 'checkpoint STORY PHASE --note TEXT [--approved]', 'resume ROLE', 'roles', 'status', 'review STORY [--again] [--approved]', 'cancel-review REQUEST --approved --note REASON', 'reply REQUEST --review PATH [--qa PATH]', 'wait REQUEST [--timeout SECONDS]', 'listen ROLE [--timeout SECONDS]', 'next ROLE [--explicit] [--request TEXT]', 'tool c2h_NAME [--args JSON | JSON on stdin]', 'design-direction STORY (--choice LABEL --note DETAILS | --carry) --story-hash HASH', 'design-ready STORY --design PATH --preview PATH [--needs-planning]', 'design-status STORY', 'quality STORY [--again|--recheck] [--roles LIST] [--approved]', 'changes STORY [--since approval|review]', 'submit-check REQUEST --from ROLE --review REPORT', 'quality-status REQUEST', 'compact-story STORY --summary PATH --approved', 'qa-interview STORY --answers JSON --story-hash HASH', 'qa-ready STORY --contract PATH', 'qa-status STORY', 'qa-result REQUEST --criterion ID --outcome pass|fail|blocked --evidence PATH', 'qa-amend STORY --approved --note REASON', 'activity ROLE', 'live ROLE', 'board [--watch] [--console]', 'board-state', 'diagnose', 'unlock --approved', 'restore-approved STORY --approved', 'verification-workspace REQUEST', 'focus-role ROLE', 'refactor-status', 'refactor-propose --summary PATH', 'refactor-approve ID --approved --proposal-hash HASH --baseline HASH', 'refactor-start ID', 'refactor-finish ID --summary PATH', 'refactor-changes ID [--since approval|review]', 'refactor-review ID --review PATH', 'refactor-fix ID --note TEXT', 'refactor-done ID', 'refactor-close ID --approved'] };
   const root = fs.realpathSync(values.project ?? process.cwd());
   const [command, first, second] = positionals;
-  const arities = { board: 1, 'live-set': 2, 'context-set': 2, 'usage-record': 2, live: 2, 'board-state': 1, 'activity-append': 2, activity: 2, diagnose: 1, unlock: 1, 'restore-approved': 2, changes: 2, 'verification-workspace': 2, 'focus-role': 2, 'qa-interview': 2, 'qa-ready': 2, 'qa-status': 2, 'qa-result': 2, 'qa-amend': 2, 'compact-story': 2, quality: 2, 'submit-check': 2, 'quality-status': 2, 'design-direction': 2, 'design-ready': 2, 'design-status': 2, start: 1, run: 2, inbox: 2, send: 1, ack: 3, handoff: 2, checkpoint: 3, resume: 2, roles: 1, status: 1, review: 2, 'cancel-review': 2, reply: 2, wait: 2, listen: 2, next: 2, tool: 2 };
+  const arities = { 'refactor-status': 1, 'refactor-propose': 1, 'refactor-approve': 2, 'refactor-start': 2, 'refactor-finish': 2, 'refactor-changes': 2, 'refactor-review': 2, 'refactor-fix': 2, 'refactor-done': 2, 'refactor-close': 2, board: 1, 'live-set': 2, 'context-set': 2, 'usage-record': 2, live: 2, 'board-state': 1, 'activity-append': 2, activity: 2, diagnose: 1, unlock: 1, 'restore-approved': 2, changes: 2, 'verification-workspace': 2, 'focus-role': 2, 'qa-interview': 2, 'qa-ready': 2, 'qa-status': 2, 'qa-result': 2, 'qa-amend': 2, 'compact-story': 2, quality: 2, 'submit-check': 2, 'quality-status': 2, 'design-direction': 2, 'design-ready': 2, 'design-status': 2, start: 1, run: 2, inbox: 2, send: 1, ack: 3, handoff: 2, checkpoint: 3, resume: 2, roles: 1, status: 1, review: 2, 'cancel-review': 2, reply: 2, wait: 2, listen: 2, next: 2, tool: 2 };
   if (!arities[command] || positionals.length !== arities[command]) throw new Error('Unknown command or wrong arguments; use --help.');
   if (signals && !INTERACTIVE.includes(command)) for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(signal, () => process.exit(128 + os.constants.signals[signal]));
   const timeout = values.timeout === undefined ? undefined : Number(values.timeout);
@@ -53,6 +53,16 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
       const usage = codexUsage(JSON.parse(values.headers ?? 'null'), values.at === undefined ? Date.now() : Number(values.at));
       return { recorded: usage ? recordUsage({ ...usage, source: 'headers' }) : false };
     }
+    case 'refactor-status': return runtime.refactorStatus(root);
+    case 'refactor-propose': return runtime.refactorPropose(root, values.summary);
+    case 'refactor-approve': return runtime.refactorApprove(root, first, { approved: values.approved, proposalHash: values['proposal-hash'], baseline: values.baseline });
+    case 'refactor-start': return runtime.refactorStart(root, first);
+    case 'refactor-finish': return runtime.refactorFinish(root, first, values.summary);
+    case 'refactor-changes': return runtime.refactorChanges(root, first, { since: values.since });
+    case 'refactor-review': return runtime.refactorReview(root, first, values.review);
+    case 'refactor-fix': return runtime.refactorFix(root, first, values.note);
+    case 'refactor-done': return runtime.refactorDone(root, first);
+    case 'refactor-close': return runtime.refactorClose(root, first, { approved: values.approved });
     case 'diagnose': return runtime.diagnose(root);
     case 'unlock': return runtime.unlock(root, { approved: values.approved });
     case 'restore-approved': return runtime.restoreApproved(root, first, { approved: values.approved });
@@ -69,6 +79,7 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
     case 'design-ready': return runtime.designReady(root, first, { design: values.design, preview: values.preview, needsPlanning: values['needs-planning'] });
     case 'design-status': return runtime.designStatus(root, first);
     case 'start': {
+      if (values['refactor-prompt'] !== undefined) runtime.setRefactorPrompt(root, values['refactor-prompt']);
       const layout = values.roles === undefined && values.agents === undefined ? undefined
         : validateLayout({ roles: values.roles === undefined ? readLayout(root).roles : values.roles.split(','), agents: values.agents === undefined ? undefined : parseAgents(values.agents) });
       return start(root, { attach: values.attach, layout, interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY), pickRoles: layout === undefined });
@@ -97,8 +108,8 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
       // (plus QA under a QA contract): it reviews only what the fixes changed.
       if (values.recheck && values.roles !== undefined) throw new Error('--recheck chooses its own roles; drop --roles.');
       const subset = values.recheck ? ['reviewer', ...(state.checkpoint?.verification ? ['qa'] : [])] : values.roles === undefined ? null : values.roles.split(',');
-      if (subset && !values.recheck && (!values.again || !subset.length || subset.some(role => !['reviewer', 'designer', 'qa'].includes(role)))) throw new Error('--roles needs --again and a list of reviewer, designer, qa.');
-      const checks = ['reviewer', 'designer', 'qa'].filter(role => selected.includes(role) && live.includes(role) && (role !== 'designer' || state.checkpoint?.design) && (!subset || subset.includes(role)));
+      if (subset && !values.recheck && (!values.again || !subset.length || subset.some(role => !['reviewer', 'designer', 'qa', 'refactor'].includes(role)))) throw new Error('--roles needs --again and a list of reviewer, designer, qa, refactor.');
+      const checks = ['reviewer', 'designer', 'qa', 'refactor'].filter(role => selected.includes(role) && live.includes(role) && (role !== 'designer' || state.checkpoint?.design) && (!subset || subset.includes(role)));
       if (state.checkpoint?.verification && !checks.includes('qa')) throw new Error('Required QA role is unavailable; restart that role explicitly. Missing QA is not PASS.');
       if (!checks.length) throw new Error('No selected quality-check role is running; start reviewer/QA or an approved-design designer.');
       return { id: runtime.requestReview(root, first, { again: values.again || values.recheck, recheck: values.recheck, extra: values.approved, checks }), checks };

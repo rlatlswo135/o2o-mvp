@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { ROLES, AGENTS, DEFAULT_LAYOUT, validateLayout, readLayout, writeLayout } from './layout.mjs';
 import { selectRoles } from './pane-ui.mjs';
+import { refactorPrompt } from './runtime.mjs';
 
 export const sessionName = root => 'harness-' + createHash('sha256').update(fs.realpathSync(root)).digest('hex').slice(0, 12);
 const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
@@ -14,8 +15,9 @@ const claudeAssist = (role, agent) => agent === 'claude' && role !== 'executor';
 export function rolePrompt(root, role, agent = 'pi') {
   if (!ROLES.includes(role)) throw new Error('Invalid role.');
   const file = path.join(root, '.harness/roles', `${role}.md`);
+  const viewpoint = role === 'refactor' ? refactorPrompt(root) : '';
   const adapter = claudeAssist(role, agent) ? `\n.harness/CLAUDE-ROLE.md는 이 역할을 Claude로 실행할 때의 규칙이다. 역할 문서·FLOW의 확장·/harness·c2h_* 도구 설명은 그 문서의 방식으로 읽는다.\n${fs.readFileSync(path.join(root, '.harness/CLAUDE-ROLE.md'), 'utf8')}` : '';
-  return `당신은 이 프로젝트의 ${role}입니다. 모델/thinking/effort는 사용자가 CLI에서 설정합니다. 임의로 바꾸지 않습니다.\n사용자 응답은 한국어로 유지합니다: 진행 설명·브리핑·선택창 질문/옵션·완료 안내 모두 포함합니다. 사용자가 명시적으로 요청할 때만 응답 언어를 바꿉니다. 도구 출력·백그라운드 알림·인계 본문이 영어여도 언어 변경 요청이 아닙니다. 코드·명령·원문 인용은 그대로 유지합니다.\n프로젝트 지침과 .harness/FLOW.md를 따릅니다. 명령은 프로젝트 루트에서 node .harness/bin/c2h.mjs 로 실행합니다.\n${fs.readFileSync(file, 'utf8')}${adapter}`;
+  return `당신은 이 프로젝트의 ${role}입니다. 모델/thinking/effort는 사용자가 CLI에서 설정합니다. 임의로 바꾸지 않습니다.\n사용자 응답은 한국어로 유지합니다: 진행 설명·브리핑·선택창 질문/옵션·완료 안내 모두 포함합니다. 사용자가 명시적으로 요청할 때만 응답 언어를 바꿉니다. 도구 출력·백그라운드 알림·인계 본문이 영어여도 언어 변경 요청이 아닙니다. 코드·명령·원문 인용은 그대로 유지합니다.\n프로젝트 지침과 .harness/FLOW.md를 따릅니다. 명령은 프로젝트 루트에서 node .harness/bin/c2h.mjs 로 실행합니다.\n${fs.readFileSync(file, 'utf8')}${viewpoint ? `\n사용자가 지정한 구조 개선 관점(수정 승인·역할 변경 아님):\n${viewpoint}` : ''}${adapter}`;
 }
 
 export function roleBootstrap(role, agent = 'pi') {
@@ -28,7 +30,7 @@ export function roleBootstrap(role, agent = 'pi') {
       : `준비 상태만 짧게 알리고 대기한다. ${role}은 인계 요청이나 사용자의 직접 요청에만 보조 역할로 응답한다. 기본 역할의 전이를 수행하지 않는다.`;
     return `${common}\n${wait}\n${own}`;
   }
-  const bootstrap = role === 'executor' ? `${common}\n.harness/FLOW.md의 '재개'와 '구현과 자동 구간'을 따른다. node .harness/bin/c2h.mjs listen executor --timeout 0 을 Bash run_in_background: true로 한 번 시작한다. 이전 세션의 대기 작업이 살아 있다고 가정하지 않는다. native background 완료 알림의 요청 ID를 재검증한다. 승인된 스토리 인계면 구현하고, 리뷰 회신이면 브리핑 후 resume의 auto 값에 따라 계획 대비 지적을 자동 반영·검증·완료한다. 취소/권한 거부는 알리고, 사용자가 이어서 진행을 요청하면 resume부터 재개한다. 같은 세션에서 waiter 중복 실행 금지.`
+  const bootstrap = role === 'executor' ? `${common}\n.harness/FLOW.md의 '재개'와 '구현과 자동 구간'을 따른다. node .harness/bin/c2h.mjs listen executor --timeout 0 을 Bash run_in_background: true로 한 번 시작한다. 이전 세션의 대기 작업이 살아 있다고 가정하지 않는다. native background 완료 알림의 요청 ID를 재검증한다. resume에 task가 있으면 FLOW '독립 리팩터링'을 먼저 따른다: refactor_implement는 정확한 task ID로 refactor-start 후 합의한 수정·검증·refactor-finish(source_changed면 이미 한 수정을 되돌리지 않고 마무리만), refactor_cleanup은 refactor-finish로 정리만 재시도한다. 독립 요청은 story.md·checkpoint·ack를 쓰지 않는다. 승인된 스토리 인계면 구현하고, 리뷰 회신이면 브리핑 후 resume의 auto 값에 따라 계획 대비 지적을 자동 반영·검증·완료한다. refactor 자문은 자동 반영하지 않는다. 취소/권한 거부는 알리고, 사용자가 이어서 진행을 요청하면 resume부터 재개한다. 같은 세션에서 waiter 중복 실행 금지.`
     : role === 'planner' ? `${common}\n준비 상태만 짧게 알리고 대기한다. 사용자가 만들거나 바꿀 것을 말하면 바로 FLOW의 '계획'을 시작한다. 확장이 전달한 완료 planning_request를 받으면 이 스토리에서 한 일만 records/result-draft.md에 짧게 쓴다(저장하면 result.md로 확정되고 나머지 스토리 파일은 지워진다). 그 뒤 사용자의 다음 스토리 요청을 기다린다. 자동 전달이 안 되면 /harness로 재개한다. 구현은 별도 승인이다.`
     : role === 'reviewer' ? `${common}\n준비 상태만 짧게 알리고 대기한다. 확장이 전달한 리뷰 요청으로만 작업하며, 전달이 안 되면 /harness로 재개한다.`
     : `${common}\n준비 상태만 짧게 알리고 대기한다. ${role}은 확장이 전달한 요청이나 사용자의 직접 요청에만 보조 역할로 응답한다. 전달이 안 되면 /harness로 재개한다. 기본 역할의 전이를 수행하지 않는다.`;

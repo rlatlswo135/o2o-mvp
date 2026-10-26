@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 2,
+  "runId": "run_mvowmuua_be3ab8",
+  "mode": "single",
+  "status": "completed",
+  "failureKind": null,
+  "dependency": "needed-before-final",
+  "backend": "headless",
+  "cwd": "/Users/cjkim/Desktop/kims/o2o-mvp",
+  "runsDir": ".pi/agent/runs",
+  "startedAt": "2026-10-26T06:57:44.866Z",
+  "updatedAt": "2026-10-26T06:58:45.296Z",
+  "completedAt": "2026-10-26T06:58:42.135Z",
+  "activeAttemptId": null,
+  "latestAttemptId": "attempt_mvowmuua_8ca641",
+  "attempts": [
+    {
+      "attemptId": "attempt_mvowmuua_8ca641",
+      "status": "completed",
+      "backend": "inline",
+      "failureKind": null,
+      "startedAt": "2026-10-26T06:57:45.145Z",
+      "updatedAt": "2026-10-26T06:58:45.296Z",
+      "completedAt": "2026-10-26T06:58:42.135Z",
+      "artifactCwd": "/Users/cjkim/Desktop/kims/o2o-mvp",
+      "resultPath": ".pi/agent/runs/run_mvowmuua_be3ab8/attempts/attempt_mvowmuua_8ca641/result.json",
+      "heartbeatAt": "2026-10-26T06:58:40.145Z",
+      "process": {
+        "command": "/Users/cjkim/.volta/tools/image/node/24.22.1/bin/node",
+        "workerPid": 84551,
+        "workerProcessGroupId": 84551,
+        "workerProcessBirthIdentity": "darwin:1792997864:894132"
+      },
+      "workspace": {
+        "mode": "shared",
+        "cwd": "/Users/cjkim/Desktop/kims/o2o-mvp",
+        "worktreePath": null
+      },
+      "stderrPath": ".pi/agent/runs/run_mvowmuua_be3ab8/attempts/attempt_mvowmuua_8ca641/stderr.log",
+      "outputPath": ".pi/agent/runs/run_mvowmuua_be3ab8/attempts/attempt_mvowmuua_8ca641/output.log"
+    }
+  ],
+  "correlationId": "s035-scenario-policy-audit",
+  "parentSessionId": "01a176f4-6ef6-70f4-90eb-14d787f6199f"
+}

@@ -25,5 +25,8 @@
       "version": "^11.10.0",
       "onFail": "download"
     }
+  },
+  "volta": {
+    "node": "24.22.1"
   }
 }

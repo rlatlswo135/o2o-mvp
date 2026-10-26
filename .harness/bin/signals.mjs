@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 
 // Display state only. Sources: pane liveness, hook/extension live state, the latest recorded reply, workflow hints.
-export const phases = { planning: '계획', implementing: '구현 중', implementation_done: '구현 완료', reviewing: '독립 검증', review_ready: '결과 준비', review_decision: '리뷰 반영', fixing: '수정 중', done: '완료', blocked: '진행 중단' };
-export const actions = { plan: '계획·범위 확인', plan_next: '완료 정리', await_story: '다음 스토리 대기', implement: '승인 범위 구현', implementation_choices: '종합 검토 요청', review: '코드 검토', review_choices: '검토 결과', review_decision: '리뷰 반영', completion_choices: '재리뷰·완료', wait: '인계 대기', brief: '결과 브리핑', assist: '보조 요청', blocked: '상태 확인 필요', done: '완료', select_story: '작업 선택' };
+export const phases = { planning: '계획', implementing: '구현 중', implementation_done: '구현 완료', reviewing: '독립 검증', review_ready: '결과 준비', review_decision: '리뷰 반영', fixing: '수정 중', done: '완료', blocked: '진행 중단', proposed: '수정안 논의', approved: '독립 수정 승인', executing: '독립 수정 중', reviewed: '리뷰 결과 판단' };
+export const actions = { plan: '계획·범위 확인', plan_next: '완료 정리', await_story: '다음 스토리 대기', implement: '승인 범위 구현', implementation_choices: '종합 검토 요청', review: '코드 검토', review_choices: '검토 결과', review_decision: '리뷰 반영', completion_choices: '재리뷰·완료', wait: '인계 대기', brief: '결과 브리핑', assist: '보조 요청', blocked: '상태 확인 필요', done: '완료', select_story: '작업 선택', refactor_discuss: '구조 개선 논의', refactor_implement: '독립 수정·검증', refactor_review: '리팩터링 리뷰', refactor_decision: '리팩터링 리뷰 판단', refactor_cleanup: '독립 수정 정리' };
 export const BADGES = { stop: '멈춤 확인 필요', choice: '선택 필요', reply: '응답 확인 필요' };
 const SLEEP = 300000;
 
@@ -44,14 +44,14 @@ export function pose(row, alert, now = Date.now()) {
 
 const STAGE = { planning: '계획', implementing: '구현', implementation_done: '구현', fixing: '구현', reviewing: '리뷰', review_ready: '리뷰', review_decision: '리뷰' };
 // waiting: the finished story's complete screen was closed, so the stages wait for the next story instead of showing it done.
-export function pipeline({ story, phase, roles = [], designPending = false, qaPending = false, blocked = false, started = false, waiting = false }) {
+export function pipeline({ story, phase, roles = [], designPending = false, qaPending = false, refactorPending = false, blocked = false, started = false, waiting = false }) {
   if (!story) return null;
-  const names = ['계획', ...(roles.includes('designer') ? ['디자인'] : []), '구현', '리뷰', ...(roles.includes('qa') ? ['QA'] : [])];
+  const names = ['계획', ...(roles.includes('designer') ? ['디자인'] : []), '구현', '리뷰', ...(roles.includes('qa') ? ['QA'] : []), ...(roles.includes('refactor') ? ['구조 자문'] : [])];
   if (phase === 'done') return names.map(name => ({ name, state: waiting ? 'next' : 'done' }));
   let current = phase === 'blocked' ? (started ? '구현' : '계획') : STAGE[phase] ?? '계획';
   if (current === '계획' && designPending && names.includes('디자인')) current = '디자인';
   const index = names.indexOf(current);
-  return names.map((name, at) => ({ name, state: at < index ? 'done' : at === index ? (blocked ? 'blocked' : 'current') : name === 'QA' && qaPending ? 'current' : 'next' }));
+  return names.map((name, at) => ({ name, state: at < index ? 'done' : at === index ? (blocked ? 'blocked' : 'current') : name === 'QA' && qaPending || name === '구조 자문' && refactorPending ? 'current' : 'next' }));
 }
 
 export function elapsed(since, now = Date.now()) {

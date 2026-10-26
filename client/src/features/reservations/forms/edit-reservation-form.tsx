@@ -1,3 +1,5 @@
+import type { Reservation, ReservationInput } from "@o2o/shared/contracts";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
@@ -5,12 +7,11 @@ import type { NoticeContent } from "@/shared/ui/notice/notice.tsx";
 
 import { toast } from "@/shared/ui/toast/toast.tsx";
 
-import type { Reservation } from "../reservations.mock.ts";
-import type { ReservationInput } from "../reservations.schema.ts";
 import type { ReservationFormProps } from "./reservation-form.tsx";
 
 import { reservationMutationKeys, updateReservation } from "../reservations.api.ts";
-import { dateOf, formatDay, timeOf } from "../reservations.time.ts";
+import { rejectionErrors } from "../reservations.schema.ts";
+import { dateOf, formatDay, formatMoment, timeOf, yearOf } from "../reservations.time.ts";
 import { ReservationForm } from "./reservation-form.tsx";
 
 export type EditReservationFormProps = {
@@ -19,10 +20,25 @@ export type EditReservationFormProps = {
   onClose: () => void;
 };
 
-const saveFailed: NoticeContent = {
+const saveRejected: NoticeContent = {
   tone: "danger",
-  title: "변경을 저장하지 못했어요.",
-  description: "예약은 바뀌지 않았고 입력 내용은 그대로 있어요. 잠시 후 다시 저장해주세요.",
+  title: "예약을 변경할 수 없어요.",
+  description: "고객·시술·날짜·시각을 다시 확인해주세요.",
+};
+
+// 반영됐을 수도 있어 '예약은 바뀌지 않았다'고 단정하지 않는다
+const saveUnknown: NoticeContent = {
+  tone: "warning",
+  title: "변경됐는지 확인하지 못했어요.",
+  description:
+    "서버에 반영됐을 수도 있어요. 입력 내용은 그대로 두었어요. 목록을 다시 불러오고 있으니 확인한 뒤 필요하면 다시 저장해주세요.",
+};
+
+// 서버가 확인한 처음 취소 시각·사유. 목록 재조회 결과에 기대지 않는다
+const cancelledDescription = ({ cancelledAt, cancelReason, startAt }: Reservation) => {
+  const when = cancelledAt === null ? "" : `${formatMoment(cancelledAt, yearOf(startAt))}에 `;
+  const reason = cancelReason === null ? "" : ` · 사유: ${cancelReason}`;
+  return `${when}취소됐어요${reason}. 수정할 수 없어요.`;
 };
 
 const staleDescription = (refreshed: boolean) =>
@@ -42,7 +58,7 @@ export function EditReservationForm({ reservation, onFinish, onClose }: EditRese
     mutationFn: (input: ReservationInput) => updateReservation(queryClient, reservation.id, input),
   });
 
-  const handleSave: ReservationFormProps["onSave"] = (input) => {
+  const handleSave: ReservationFormProps["onSave"] = (input, showErrors) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setNotice(null);
@@ -69,7 +85,7 @@ export function EditReservationForm({ reservation, onFinish, onClose }: EditRese
             setNotice({
               tone: "warning",
               title: "이미 취소된 예약이에요.",
-              description: staleDescription(result.refreshed),
+              description: cancelledDescription(result.reservation),
             });
             break;
           case "not_found":
@@ -80,8 +96,14 @@ export function EditReservationForm({ reservation, onFinish, onClose }: EditRese
               description: staleDescription(result.refreshed),
             });
             break;
-          case "failed":
-            setNotice(saveFailed);
+          case "rejected": {
+            const errors = rejectionErrors(result.reason);
+            if (errors) showErrors(errors);
+            else setNotice(saveRejected);
+            break;
+          }
+          case "unknown":
+            setNotice(saveUnknown);
             break;
         }
       },
@@ -95,11 +117,11 @@ export function EditReservationForm({ reservation, onFinish, onClose }: EditRese
       submitLabel="변경 저장"
       defaultValues={{
         customerId: String(reservation.customer.id),
-        treatmentId: String(reservation.treatment.id),
+        treatmentIds: reservation.treatments.map((treatment) => String(treatment.id)),
         date: dateOf(reservation.startAt),
         startTime: timeOf(reservation.startAt),
       }}
-      keptTreatment={reservation.treatment}
+      kept={{ customer: reservation.customer, treatments: reservation.treatments }}
       status={saving ? "saving" : stale ? "locked" : "idle"}
       notice={notice}
       onSave={handleSave}

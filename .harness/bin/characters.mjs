@@ -3,6 +3,7 @@ export const POSES = ['idle', 'working', 'sleeping', 'alert', 'quiet', 'error', 
 
 // 15 columns x 7 rows. `eyes` is the face token swapped for closed or error eyes.
 const ART = {
+  refactor: { eyes: ['o   o', '─   ─', '>   <'], rows: ['  .@@@@@@@.    ', ' @@╭─────╮@@   ', ' @@│o   o│@@   ', '   │ ┴┴┴ │  ♫  ', '   ╰┬───┬╯ ╱╱  ', '   ╱│   │╲◢━   ', '    ┘   └      '] },
   planner: { eyes: ['•   •', '─   ─', '>   <'], rows: ['               ', '╭───────╮ ┌───┐', '│ •   • │ │✓──│', '│   ‿   │─┤✓──│', '╰─┬───┬─╯ │·──│', '  │   │   └───┘', '  ┘   └        '] },
   designer: { eyes: ['◠   ◠', '─   ─', '>   <'], rows: [' .@@@@@@@@@.   ', '@@╭───────╮@@  ', '@@│ ◠   ◠ │@@  ', ' @│ ╲www╱ │@   ', '  ╰─┬───┬─╯  ● ', '   ╱│   │╲══╱  ', '    ┘   └      '] },
   executor: { eyes: ['o   o', '─   ─', '>   <'], rows: ['               ', '  ╭───────╮    ', '  │ o   o │    ', '  │   ▿   │    ', '  ╰─┬───┬─╯    ', ' ┌──╨───╨──┐   ', ' │▄▄▄█▄▄▄▄▄│   '] },
@@ -12,6 +13,7 @@ const ART = {
 
 // Working animation: row replacements per frame (four frames, 300ms each).
 const WORK = {
+  refactor: frame => ({ 3: `   │ ┴┴┴ │  ${frame % 2 ? '♪' : '♫'}  `, 5: frame % 2 ? '   ╱│   │╲◢≈   ' : '   ╱│   │╲◢━   ' }),
   planner: frame => ({ 2: `│ •   • │ │${frame > 0 ? '✓' : '·'}──│`, 3: `│   ‿   │─┤${frame > 1 ? '✓' : '·'}──│`, 4: `╰─┬───┬─╯ │${frame > 2 ? '✓' : '·'}──│` }),
   designer: frame => ({ 6: '    ┘   └ ' + '~'.repeat(frame + 1).padEnd(5) }),
   executor: frame => ({ 6: ' │' + '▄▄▄▄▄▄▄▄▄'.split('').map((key, at) => at === [1, 5, 3, 7][frame] ? '█' : key).join('') + '│   ' }),
@@ -21,6 +23,7 @@ const WORK = {
 
 // 7 columns x 3 rows for compact cards.
 const MINI = {
+  refactor: { eyes: ['o o', '─ ─', '> <'], rows: ['@@@@@  ', '│o o│♪ ', '╰┬┴┬╯  '], work: ['♪', '♫'] },
   planner: { eyes: ['• •', '─ ─', '> <'], rows: ['╭───╮  ', '│• •│✓ ', '╰┬─┬╯  '], work: ['·', '✓'] },
   designer: { eyes: ['◠ ◠', '─ ─', '> <'], rows: ['@@@@@  ', '│◠ ◠│● ', '╰┬─┬╯  '], work: ['~', '≈'] },
   executor: { eyes: ['o o', '─ ─', '> <'], rows: ['╭───╮  ', '│o o│  ', '▄▄█▄▄  '], work: null },

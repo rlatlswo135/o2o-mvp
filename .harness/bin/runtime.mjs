@@ -8,7 +8,8 @@ import { ROLES, readLayout } from './layout.mjs';
 import { interviewRecord, verificationContract, validateVerification, qaResults } from './qa-contract.mjs';
 import { sourceManifest, diffManifest, copyProduct } from './evidence.mjs';
 export { ROLES };
-const assistRole = role => role === 'designer' || role === 'qa';
+const assistRole = role => role === 'designer' || role === 'qa' || role === 'refactor';
+const QUALITY_ROLES = ['reviewer', 'designer', 'qa', 'refactor'];
 const PHASES = ['planning', 'implementing', 'implementation_done', 'reviewing', 'review_ready', 'review_decision', 'fixing', 'done', 'blocked'];
 const ID = /^\d{8}T\d{12}Z-[a-f0-9]{12}$/;
 const STORY = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -325,7 +326,7 @@ function envelope(data, file) {
   }
   if (data.checks !== undefined) {
     check(kind === 'review_request', 'Only review requests carry quality participants.');
-    check(Array.isArray(data.checks) && data.checks.length > 0 && data.checks.length <= 3 && new Set(data.checks).size === data.checks.length && data.checks.every(role => ['reviewer', 'designer', 'qa'].includes(role)), 'Invalid quality participants.');
+    check(Array.isArray(data.checks) && data.checks.length > 0 && data.checks.length <= QUALITY_ROLES.length && new Set(data.checks).size === data.checks.length && data.checks.every(role => QUALITY_ROLES.includes(role)), 'Invalid quality participants.');
     check(object(data.check_requests) && Object.keys(data.check_requests).every(role => data.checks.includes(role)) && data.checks.every(role => matches(ID, data.check_requests[role])), 'Invalid correlated quality requests.');
     check(!data.checks.includes('reviewer') || data.check_requests.reviewer === data.id, 'The reviewer part of a quality request must be the request itself.');
   }
@@ -514,7 +515,7 @@ function verifyResponse(root, request, response, checkSource = true) {
       const receipt = json(file);
       if (role === 'qa' && request.verification) validateQaReceipt(root, request, receipt);
       check(receipt.request_id === request.id && receipt.role === role && receipt.baseline === request.baseline, `The ${role} quality receipt belongs to a different request.`);
-      check(reports[role] === receipt.report && reports.hashes[receipt.report] === receipt.hash, `Combined quality response names a different ${role} report.`);
+      check((role === 'refactor' ? reports.advisory?.refactor : reports[role]) === receipt.report && reports.hashes[receipt.report] === receipt.hash, `Combined quality response names a different ${role} report.`);
       check(reportInfo(root, request.story, receipt.report)[1] === receipt.hash, `The ${role} quality report changed after delivery.`);
     }
     const [file, digest] = reportInfo(root, request.story, reports.combined);
@@ -694,16 +695,19 @@ export function markSealedResults(root) {
 const finished = state => ({ story: state.story, story_hash: state.story_hash, phase: 'done', note: state.note,
   completion: { message_id: state.completion.message_id, consolidation_required: true }, updated: state.updated });
 
+// A free-text note naming a sealed story (one sent after the seal, such as a next discussion handed to the planner) is
+// new work for its reader, not leftover cleanup: it neither holds the next story or a refactor nor is deleted unread.
 function compactionPending(root, story, sealed = compactedRecord(root, story)) {
   return Boolean(sealed) && (fs.readdirSync(storyDirectory(root, story)).some(name => name !== 'result.md') ||
-    ROLES.some(role => allMessages(root, role).some(item => item.story === story && item.id !== sealed.id)));
+    ROLES.some(role => allMessages(root, role).some(item => item.story === story && item.id !== sealed.id && !plainNote(item))));
 }
 
 // Idempotent: an interrupted cleanup is finished by running compact-story again.
 function clearStory(root, story, completionId) {
   const active = safe(root, '.harness/active.json');
   if (exists(active) && json(active).story === story) atomic(root, active, encode(finished(json(active))));
-  const owned = ROLES.flatMap(role => allMessages(root, role).filter(item => item.story === story && item.id !== completionId).map(item => ({ role, item })));
+  const owned = ROLES.flatMap(role => allMessages(root, role).filter(item => item.story === story && item.id !== completionId).map(item => ({ role, item })))
+    .filter(({ role, item }) => !plainNote(item) || !exists(safe(root, '.harness/inbox', role, `${item.id}.json`)));
   check(owned.every(({ role, item }) => !exists(safe(root, '.harness/inbox', role, `${item.id}.json`))), 'Unresolved pending role messages prevent consolidation.');
   for (const { item } of owned) if (item.kind === 'review_request') {
     if (matches(/^\.harness\/baselines\/[A-Za-z0-9_-]+\.json$/, item.source_manifest?.file)) fs.rmSync(safe(root, item.source_manifest.file), { force: true });
@@ -956,10 +960,13 @@ export function qaResult(root, id, criterion, outcome, evidence) {
     const state = loadState(root), request = reviewRequest(root, id);
     check(state?.request_id === id && state.verification && request.checks?.includes('qa') && !request.cancelled && ['reviewing', 'review_ready'].includes(state.phase), 'No active QA contract request.');
     check(reviewFingerprint(root, request) === request.baseline, 'Source changed during QA verification.');
-    check(validateVerification(root, request.story, state.verification).criteria.some(item => item.id === criterion), 'Invalid QA criterion ID.');
+    const criterionRecord = validateVerification(root, request.story, state.verification).criteria.find(item => item.id === criterion);
+    check(criterionRecord, 'Invalid QA criterion ID.');
     if (['pass', 'fail'].includes(outcome)) {
+      const browser = criterionRecord.method === 'browser';
       const workspace = workspaceInfo(root, request, state.verification), metadata = safe(root, path.dirname(workspace.product), 'snapshot.json');
-      if (exists(workspace.product) || exists(metadata)) {
+      if (browser) check(exists(workspace.product) && exists(metadata), 'Browser QA pass/fail requires a prepared verification workspace.');
+      if (browser || exists(workspace.product) || exists(metadata)) {
         check(exists(workspace.product) && exists(metadata) && encode(json(metadata, 8 * 1024 * 1024)) === encode(workspace), 'Verification subject metadata changed; record blocked and preserve evidence.');
         const format = request.fingerprint ?? 'git-v1';
         const before = request.source_manifest?.file ? readSourceManifest(root, request.source_manifest, request.baseline, format) : manifestFor(root, format);
@@ -1010,6 +1017,7 @@ export function qaAmend(root, story, { approved = false, note } = {}) {
     try {
       draft.forEach((name, index) => atomic(root, targets[index], bytes(safe(root, amendFolder(root, story), name))));
       amended = verificationContract(root, story, state.story_hash, state.verification.file);
+      check(!state.verification.browser || amended.browser === true, 'QA test repair cannot remove required browser QA; change scope through a new story.');
       check(JSON.stringify(amended) !== JSON.stringify(state.verification), 'The draft changes nothing in the approved QA contract.');
     } catch (error) {
       targets.forEach((file, index) => before[index] === null ? fs.rmSync(file, { force: true }) : atomic(root, file, before[index]));
@@ -1027,6 +1035,7 @@ export function qaAmend(root, story, { approved = false, note } = {}) {
 export function handoff(root, story, { approved = false, expectedStoryHash, design, preview, expectedDesignHash, expectedPreviewHash, expectedQaHash, sender = 'planner' } = {}) {
   check(approved === true, 'Explicit approval is required for handoff.');
   return transaction(root, root => {
+    noRefactorWork(root);
     let state = baseState(root, story, loadState(root));
     if (expectedStoryHash !== undefined) check(matches(HASH, expectedStoryHash) && state.story_hash === expectedStoryHash, 'Story changed since approval selection; ask again.');
     check(!openReviews(root).length, 'A review is still open; do not change source.');
@@ -1047,9 +1056,10 @@ export function handoff(root, story, { approved = false, expectedStoryHash, desi
       pinned = validateDesign(root, story, ready);
     } else check(!prepared, 'Ready design requires explicit composite design/preview approval.');
     if (sender === 'designer') check(pinned, 'Designer handoff requires approved ready design.');
-    // A QA contract is optional; when one is ready it is pinned and must be part of the approval.
+    // New UI approvals pin browser QA; existing approvals return above without retroactive requirements.
     const verification = qaStatus(root, story);
     if (verification) check(expectedQaHash === verification.hash, 'QA contract changed or was not included in scope approval; present it and ask again.');
+    if (pinned) check(verification?.browser === true && readLayout(root).roles.includes('qa'), 'Composite design handoff requires a browser QA criterion and selected QA role.');
     const id = pending[0]?.id ?? deliver(root, sender, 'executor', story, '명시적으로 승인된 스토리 revision만 구현한다. 사용자 응답과 선택창은 한국어를 유지한다.', { kind: 'implementation_request', approved: true, story_hash: state.story_hash, ...(pinned ? { design: pinned } : {}), ...(verification ? { verification } : {}) });
     check(!pending[0] || pending[0].sender === sender && JSON.stringify(pending[0].design) === JSON.stringify(pinned), 'Pending handoff has a different approved design scope.');
     check(!pending[0] || JSON.stringify(pending[0].verification) === JSON.stringify(verification), 'Pending handoff has different QA verification scope.');
@@ -1063,15 +1073,219 @@ export function handoff(root, story, { approved = false, expectedStoryHash, desi
 
 const reviewRounds = (root, story) => allMessages(root, 'reviewer').filter(data => data.kind === 'review_request' && data.story === story && !data.cancelled).length;
 
+// Independent refactors use their own approval, never reopen a completed story or relax story envelopes.
+const refactorFile = root => safe(root, '.harness/refactor/active.json');
+const taskFolder = (root, id) => { idCheck(id); return safe(root, '.harness/refactor', id); };
+const freshId = () => `${new Date().toISOString().replace(/[-:.]/g, '').replace('Z', '000Z')}-${randomBytes(6).toString('hex')}`;
+export function refactorPrompt(root) {
+  const file = safe(root, '.harness/refactor-prompt.md');
+  return exists(file) ? bytes(file, 32000).toString('utf8') : '';
+}
+export function setRefactorPrompt(root, filename) {
+  const input = bytes(path.resolve(filename), 32000); textCheck(input.toString(), 16000, 'Refactor viewpoint');
+  return transaction(root, root => {
+    const task = refactorTask(root);
+    check(!task || task.phase === 'proposed', 'Independent refactor work is active; finish before changing its viewpoint.');
+    check(!openReviews(root).some(item => item.checks?.includes('refactor')), 'Refactor viewpoint is frozen by a pending review.');
+    atomic(root, safe(root, '.harness/refactor-prompt.md'), input);
+    return { prompt: '.harness/refactor-prompt.md' };
+  });
+}
+// An approved refactor ends only after the reviewer has read it: the review of the change plus one recheck of its fixes.
+const MAX_REFACTOR_REVIEWS = 2;
+const TASK_PHASES = ['proposed', 'approved', 'executing', 'reviewing', 'reviewed', 'fixing', 'done'];
+// The executor's report states the same checks run before and after the change, so a failure can be told from an old one.
+const VERIFIED_SECTIONS = [/^##\s*수정 전 검증/m, /^##\s*수정 후 검증/m];
+function refactorTask(root) {
+  const file = refactorFile(root);
+  if (!exists(file)) return null;
+  let task = json(file); idCheck(task.id);
+  // Tasks saved before reviews held their verified report in an optional intent check; the reviewer takes it over.
+  if (task.phase === 'checking') task = { ...task, phase: 'reviewing', round: 1 };
+  check(TASK_PHASES.includes(task.phase), 'Invalid independent refactor phase.');
+  check(matches(HASH, task.proposal_hash) && matches(HASH, task.baseline) && matches(HASH, task.prompt_hash) && SNAPSHOTS.includes(task.fingerprint), 'Invalid independent refactor approval.');
+  if (task.delivery_id !== undefined) idCheck(task.delivery_id);
+  if (task.phase === 'done') return task;
+  check(task.proposal === `.harness/refactor/${task.id}/proposal.md` && hash(bytes(safe(root, task.proposal))) === task.proposal_hash, 'Refactor proposal changed; do not reuse its approval.');
+  if (task.phase !== 'proposed') check(matches(ID, task.delivery_id), 'Refactor handoff lacks its delivery ID.');
+  if (['reviewing', 'reviewed', 'fixing'].includes(task.phase)) check(Number.isInteger(task.round) && task.round >= 1 && task.round <= MAX_REFACTOR_REVIEWS && matches(HASH, task.verified_baseline), 'Invalid independent refactor review round.');
+  // The executor rewrites its report while fixing; the reviewed version is pinned until then.
+  if (['reviewing', 'reviewed'].includes(task.phase)) check(taskReport(root, task, task.report)[1] === task.report_hash, 'Refactor implementation evidence changed.');
+  if (['reviewed', 'fixing'].includes(task.phase))
+    check(Array.isArray(task.reviews) && task.reviews.length === task.round && task.reviews.every(item => taskReport(root, task, item.report)[1] === item.hash), 'Sent refactor review changed.');
+  return task;
+}
+function saveRefactor(root, task) {
+  const next = { ...task, updated: new Date().toISOString() };
+  atomic(root, refactorFile(root), encode(next));
+  return next;
+}
+// Only the executor changes source, so a refactor proposal or one in progress holds story handoffs and story work.
+// Planning the next story changes no source and stays open (checkpoint STORY planning).
+function noRefactorWork(root) {
+  const task = refactorTask(root);
+  check(!task, `Independent refactor ${task?.id} is active; story planning may continue, but finish it or close it (refactor-close ID --approved) before handoff, story work or upgrades that change product files.`);
+}
+// A refactor starts when no approved story is in flight: the last one is finished and cleaned up, or the next is still being planned.
+function settledStory(root) {
+  const state = loadState(root);
+  const planning = state?.phase === 'planning' && !state.approval;
+  check(!state || planning || state.phase === 'done' && compactedRecord(root, state.story), 'Finish the active story and completion cleanup before an independent refactor.');
+  check(!state || planning || !compactionPending(root, state.story), `${state?.story} completion cleanup is pending; retry compact-story ${state?.story} --approved before an independent refactor.`);
+  check(!openReviews(root).length && !messages(root, 'executor').some(item => ['implementation_request', 'review_result'].includes(item.kind)), 'Pending story work prevents an independent refactor.');
+}
+function taskReport(root, task, filename) {
+  check(typeof filename === 'string', 'Refactor report path required.');
+  const file = safe(root, filename), rel = path.relative(taskFolder(root, task.id), file);
+  check(rel && !rel.startsWith('..') && !path.isAbsolute(rel) && path.extname(file) === '.md' && file !== safe(root, task.proposal), 'Refactor evidence must be Markdown inside its request folder, not the proposal.');
+  const data = bytes(file); textCheck(data.toString(), 16000, 'Refactor evidence');
+  return [path.relative(projectRoot(root), file).split(path.sep).join('/'), hash(data)];
+}
+export function refactorStatus(root) {
+  const folder = safe(root, '.harness/refactor/advice');
+  const advice = !exists(folder) ? [] : fs.readdirSync(folder).filter(name => matches(ID, name.slice(0, -3)) && name.endsWith('.md')).sort().map(name => {
+    const report = `.harness/refactor/advice/${name}`; bytes(safe(root, report), MAX_FILE + 4096);
+    return { id: name.slice(0, -3), report };
+  });
+  return { task: refactorTask(root), advice };
+}
+export function refactorPropose(root, summary) {
+  return transaction(root, root => {
+    settledStory(root);
+    const previous = refactorTask(root);
+    check(!previous || previous.phase === 'proposed', 'An approved refactor is already active.');
+    check(typeof summary === 'string', 'Refactor proposal path required.');
+    const file = safe(root, summary), rel = path.relative(safe(root, '.harness/refactor'), file);
+    check(rel && !rel.startsWith('..') && !path.isAbsolute(rel) && path.extname(file) === '.md', 'Proposal must be Markdown under .harness/refactor/.');
+    const content = bytes(file); textCheck(content.toString(), 16000, 'Refactor proposal');
+    const id = previous?.id ?? freshId(), proposal = `.harness/refactor/${id}/proposal.md`, fingerprint = currentFormat();
+    atomic(root, safe(root, proposal), content);
+    return saveRefactor(root, { id, phase: 'proposed', proposal, proposal_hash: hash(content), baseline: sourceFingerprint(root, fingerprint), fingerprint, prompt_hash: hash(refactorPrompt(root)) });
+  });
+}
+export function refactorApprove(root, id, { approved = false, proposalHash, baseline } = {}) {
+  check(approved === true, 'Explicit approval is required for an independent refactor.');
+  idCheck(id);
+  return transaction(root, root => {
+    const task = refactorTask(root);
+    check(task?.id === id && task.phase === 'proposed', 'Refactor proposal is no longer awaiting approval.');
+    settledStory(root);
+    check(task.proposal_hash === proposalHash && task.baseline === baseline, 'Refactor proposal changed while choosing; ask again.');
+    check(sourceFingerprint(root, task.fingerprint) === task.baseline, 'Source changed since the refactor proposal; discuss and approve a fresh proposal.');
+    check(hash(refactorPrompt(root)) === task.prompt_hash, 'Refactor viewpoint changed; prepare a fresh proposal.');
+    // Per-path source at approval: the reviewer's `refactor-changes ID` base. Diagnostic only, like a story's approval source.
+    const approved_source = saveSourceManifest(root, task.baseline, `refactor-${id}`, task.fingerprint);
+    return saveRefactor(root, { ...task, phase: 'approved', approved_source, delivery_id: freshId() });
+  });
+}
+export function refactorStart(root, id) {
+  idCheck(id);
+  return transaction(root, root => {
+    const task = refactorTask(root);
+    check(task?.id === id && ['approved', 'executing'].includes(task.phase), 'Refactor needs recorded approval before source editing.');
+    settledStory(root);
+    if (task.phase === 'executing') return task;
+    check(sourceFingerprint(root, task.fingerprint) === task.baseline && hash(refactorPrompt(root)) === task.prompt_hash, 'Source or viewpoint changed after refactor approval; do not edit.');
+    return saveRefactor(root, { ...task, phase: 'executing' });
+  });
+}
+function clearRefactor(root, task) {
+  // A terminal marker makes interrupted cleanup retryable without replaying source changes.
+  saveRefactor(root, { ...task, phase: 'done', delivery_id: task.delivery_id ?? freshId() });
+  const draft = safe(root, '.harness/refactor/draft.md');
+  if (exists(draft) && hash(bytes(draft)) === task.proposal_hash) fs.unlinkSync(draft);
+  fs.rmSync(taskFolder(root, task.id), { recursive: true, force: true });
+  const baselines = safe(root, '.harness/baselines');
+  if (exists(baselines)) for (const name of fs.readdirSync(baselines)) if (name.startsWith(`refactor-${task.id}`)) fs.unlinkSync(path.join(baselines, name));
+  fs.unlinkSync(refactorFile(root)); syncDirectory(path.dirname(refactorFile(root)));
+  return { id: task.id, closed: true };
+}
+// The executor's verified change (first or fixed) goes to the reviewer; the source is pinned until the review arrives.
+export function refactorFinish(root, id, summary) {
+  idCheck(id);
+  return transaction(root, root => {
+    const task = refactorTask(root); check(task?.id === id, 'A different independent refactor is active.');
+    if (task.phase === 'done') return clearRefactor(root, task);
+    check(['executing', 'fixing'].includes(task.phase), 'Start the approved independent refactor before finishing.');
+    settledStory(root);
+    const [report, report_hash] = taskReport(root, task, summary);
+    check(VERIFIED_SECTIONS.every(pattern => pattern.test(bytes(safe(root, report)).toString())), "Refactor report needs '## 수정 전 검증' and '## 수정 후 검증' with the same checks run before and after the change.");
+    const round = (task.round ?? 0) + 1, verified_baseline = sourceFingerprint(root, task.fingerprint);
+    const verified_source = saveSourceManifest(root, verified_baseline, `refactor-${id}-${round}`, task.fingerprint);
+    return saveRefactor(root, { ...task, phase: 'reviewing', round, report, report_hash, verified_baseline, verified_source, delivery_id: freshId() });
+  });
+}
+// Reviewer: the report is immutable once sent; the executor then fixes against the proposal or finishes.
+export function refactorReview(root, id, review) {
+  idCheck(id);
+  return transaction(root, root => {
+    const task = refactorTask(root);
+    check(task?.id === id && task.phase === 'reviewing', 'No matching independent refactor review is pending.');
+    check(sourceFingerprint(root, task.fingerprint) === task.verified_baseline, 'Source changed after the refactor was verified; restore the verified source or close the refactor.');
+    const [report, digest] = taskReport(root, task, review);
+    const reviews = task.reviews ?? [];
+    check(report !== task.report && !reviews.some(item => item.report === report), 'Write the review as a new Markdown file in the refactor folder, not over the implementation report or an earlier review.');
+    return saveRefactor(root, { ...task, phase: 'reviewed', reviews: [...reviews, { report, hash: digest }],
+      reviewed_baseline: task.verified_baseline, reviewed_source: task.verified_source, delivery_id: freshId() });
+  });
+}
+// Executor: apply reviewed findings that the proposal backs (behavior change, defect, scope drift), then finish again.
+export function refactorFix(root, id, note) {
+  idCheck(id); textCheck(note, 16000, 'Refactor fix note');
+  return transaction(root, root => {
+    const task = refactorTask(root);
+    check(task?.id === id && ['reviewed', 'fixing'].includes(task.phase), 'No reviewed independent refactor awaits fixes.');
+    if (task.phase === 'fixing') return task;
+    check(task.round < MAX_REFACTOR_REVIEWS, `Refactor review limit reached (${MAX_REFACTOR_REVIEWS}); ask the user to finish as is (refactor-done) or to finish and discuss a new proposal.`);
+    check(sourceFingerprint(root, task.fingerprint) === task.verified_baseline, 'Source changed after the reviewed version; restore it before fixing.');
+    return saveRefactor(root, { ...task, phase: 'fixing', fix_note: note });
+  });
+}
+export function refactorDone(root, id) {
+  idCheck(id);
+  return transaction(root, root => {
+    const task = refactorTask(root);
+    check(task?.id === id && task.phase === 'reviewed', 'Only a reviewed independent refactor can finish.');
+    check(sourceFingerprint(root, task.fingerprint) === task.verified_baseline, 'Source changed after the reviewed version; fix, verify and review it again.');
+    return clearRefactor(root, task);
+  });
+}
+// Paths changed since approval or since the version the last review read (diagnostic, not a diff).
+export function refactorChanges(root, id, { since = 'approval' } = {}) {
+  idCheck(id); check(['approval', 'review'].includes(since), 'Use --since approval or --since review.');
+  root = projectRoot(root);
+  const task = refactorTask(root);
+  check(task?.id === id && task.phase !== 'proposed', 'Only the approved active refactor has recorded change bases.');
+  const [reference, baseline] = since === 'approval' ? [task.approved_source, task.baseline] : [task.reviewed_source, task.reviewed_baseline];
+  const base = { task: id, since, fingerprint: task.fingerprint };
+  if (!reference?.file) return { ...base, available: false, limitation: reference?.unavailable ?? (since === 'review' ? 'No review is recorded for this refactor yet.' : 'No per-path manifest was recorded for this base.') };
+  return { ...base, available: true, ...diffManifest(readSourceManifest(root, reference, baseline, task.fingerprint), manifestFor(root, task.fingerprint)) };
+}
+export function refactorClose(root, id, { approved = false } = {}) {
+  idCheck(id); check(approved === true, 'Explicit approval is required to close a refactor request.');
+  return transaction(root, root => {
+    const task = refactorTask(root);
+    if (task?.id === id) {
+      check(!['executing', 'fixing'].includes(task.phase), 'Executor is editing source; finish and verify before closing.');
+      return clearRefactor(root, task);
+    }
+    const file = safe(root, '.harness/refactor/advice', `${id}.md`);
+    check(exists(file), 'Unknown refactor request or advice.');
+    fs.unlinkSync(file); syncDirectory(path.dirname(file));
+    return { id, closed: true };
+  });
+}
+
 // recheck: a review of the verified fixes only (recheck_of names the review whose findings were applied).
 // extra: the user's explicit choice of another review beyond the per-story round limit.
 export function requestReview(root, story, expected = {}) {
-  check(object(expected) && ['again', 'recheck', 'extra'].every(key => expected[key] === undefined || typeof expected[key] === 'boolean') && (expected.checks === undefined || Array.isArray(expected.checks) && expected.checks.length > 0 && expected.checks.every(role => ['reviewer', 'designer', 'qa'].includes(role)) && new Set(expected.checks).size === expected.checks.length), 'Invalid review options.');
+  check(object(expected) && ['again', 'recheck', 'extra'].every(key => expected[key] === undefined || typeof expected[key] === 'boolean') && (expected.checks === undefined || Array.isArray(expected.checks) && expected.checks.length > 0 && expected.checks.every(role => QUALITY_ROLES.includes(role)) && new Set(expected.checks).size === expected.checks.length), 'Invalid review options.');
   const checkExpected = request => {
     if ('baseline' in expected) check(expected.baseline === request.baseline &&
       (expected.fingerprint === undefined || expected.fingerprint === (request.fingerprint ?? 'git-v1')), 'Invalid review request envelope.');
   };
   return transaction(root, root => {
+    noRefactorWork(root);
     const state = baseState(root, story, loadState(root));
     bytes(safe(root, storyDirectory(root, story), 'implementation.md'));
     if (state.request_id && ['reviewing', 'review_ready', 'review_decision'].includes(state.phase)) {
@@ -1091,6 +1305,7 @@ export function requestReview(root, story, expected = {}) {
     // Only a new request needs QA; reusing the pending one (a reviewer resuming its part) keeps its participants.
     if (state.verification) check(expected.checks?.includes('qa'), 'QA contract requires QA participation in frozen review.');
     if (expected.checks) {
+      check(expected.checks.some(role => role !== 'refactor'), 'Refactor advice cannot replace the existing quality checks.');
       check(state.approval && state.verified_baseline && sourceFingerprint(root, verifiedFormat(state)) === state.verified_baseline, 'Verify the approved implementation before requesting combined checks.');
       check(!expected.checks.includes('designer') || state.design, 'Design QA requires an approved design contract.');
     }
@@ -1102,7 +1317,8 @@ export function requestReview(root, story, expected = {}) {
     const format = currentFormat(), baseline = pending.length ? reviewFingerprint(root, pending[0]) : sourceFingerprint(root, format);
     if (pending.length) check(pending[0].baseline === baseline, 'Source changed during pending review.');
     const snapshot = pending[0] ?? { kind: 'review_request', baseline, fingerprint: format, source_manifest: saveSourceManifest(root, baseline, `review-${randomBytes(12).toString('hex')}`, format),
-      ...(state.verification ? { verification: state.verification } : {}), ...(expected.recheck ? { recheck_of: state.request_id } : {}) };
+      ...(state.verification ? { verification: state.verification } : {}), ...(expected.recheck ? { recheck_of: state.request_id } : {}),
+      ...(expected.checks?.includes('refactor') ? { refactor_prompt_hash: hash(refactorPrompt(root)) } : {}) };
     checkExpected(snapshot);
     if (expected.checks) {
       if (pending.length) check(JSON.stringify(snapshot.checks) === JSON.stringify(expected.checks), 'Review retry must preserve exact participants.');
@@ -1165,6 +1381,7 @@ function submitCheckLocked(root, id, role, report) {
   const status = batchStatus(root, id), state = loadState(root);
   check(state?.request_id === id && state.story === status.request.story && ['reviewing', 'review_ready', 'review_decision'].includes(state.phase), 'A different quality request is active or source editing has started.');
   check(status.checks.includes(role), 'Role is not a participant in this review.');
+  if (role === 'refactor' && status.request.refactor_prompt_hash) check(hash(refactorPrompt(root)) === status.request.refactor_prompt_hash, 'Refactor viewpoint changed during the frozen review.');
   const info = reportInfo(root, status.request.story, report), current = status.reports[role];
   if (current) check(current.report === info[0] && current.hash === info[1], 'Submitted report is immutable.');
   else {
@@ -1178,12 +1395,18 @@ function submitCheckLocked(root, id, role, report) {
   let response = refreshed.response;
   if (!response) {
     const combined = recordFile(root, status.request.story, `quality-${id}-combined.md`);
-    const text = `# 종합 검토\n\n- 요청: ${id}\n- 고정 소스: ${status.request.baseline}\n- 참여 역할: ${status.checks.join(', ')}\n\n실행자는 모든 원본을 읽고 계획(story.md·design.md·QA 계약)과 대조해 반영할 지적을 고른 뒤 자동으로 수정한다. 계획 밖 취향 제안과 틀린 지적은 이유와 함께 implementation.md에 남긴다.\n\n` + status.checks.map(key => `## ${key}\n\n- 원본: [${path.basename(refreshed.reports[key].report)}](${path.relative(path.dirname(combined), safe(root, refreshed.reports[key].report)).split(path.sep).join('/')})\n- SHA-256: ${refreshed.reports[key].hash}\n`).join('\n');
+    const advisory = refreshed.reports.refactor;
+    if (advisory) {
+      const saved = safe(root, '.harness/refactor/advice', `${id}.md`);
+      if (!exists(saved)) atomic(root, saved, `# 구조 개선 자문 — ${status.request.story}\n\n- 검토 소스: ${status.request.baseline}\n- 원본 요청: ${id}\n- 자동 수정 대상 아님. 적용 전 현재 코드에서 다시 확인한다.\n\n${bytes(safe(root, advisory.report)).toString()}`);
+    }
+    const actionable = status.checks.filter(key => key !== 'refactor');
+    const text = `# 종합 검토\n\n- 요청: ${id}\n- 고정 소스: ${status.request.baseline}\n- 참여 역할: ${status.checks.join(', ')}\n\n실행자는 아래 원본을 읽고 계획(story.md·design.md·QA 계약)과 대조해 반영할 지적을 고른 뒤 자동으로 수정한다. 계획 밖 취향 제안과 틀린 지적은 이유와 함께 implementation.md에 남긴다.\n${advisory ? `\nrefactor 구조 제안은 자동 반영 대상에서 제외된다. .harness/refactor/advice/${id}.md에 독립 보관됐으며 사용자와 논의·별도 승인 뒤에만 수정한다.\n` : ''}\n` + actionable.map(key => `## ${key}\n\n- 원본: [${path.basename(refreshed.reports[key].report)}](${path.relative(path.dirname(combined), safe(root, refreshed.reports[key].report)).split(path.sep).join('/')})\n- SHA-256: ${refreshed.reports[key].hash}\n`).join('\n');
     atomic(root, combined, text);
     const reportPath = path.relative(projectRoot(root), combined).split(path.sep).join('/');
-    const paths = { ...Object.fromEntries(Object.entries(refreshed.reports).map(([key, value]) => [key, value.report])), review: reportPath, combined: reportPath };
-    const hashes = Object.fromEntries(Object.values(paths).map(file => [file, hash(bytes(safe(root, file)))]));
-    const responseId = deliver(root, 'reviewer', 'executor', status.request.story, JSON.stringify({ ...paths, hashes }), { kind: 'review_result', reply_to: id, baseline: status.request.baseline });
+    const paths = { ...Object.fromEntries(Object.entries(refreshed.reports).filter(([key]) => key !== 'refactor').map(([key, value]) => [key, value.report])), review: reportPath, combined: reportPath };
+    const hashes = Object.fromEntries([...Object.values(paths), ...(advisory ? [advisory.report] : [])].map(file => [file, hash(bytes(safe(root, file)))]));
+    const responseId = deliver(root, 'reviewer', 'executor', status.request.story, JSON.stringify({ ...paths, hashes, ...(advisory ? { advisory: { refactor: advisory.report } } : {}) }), { kind: 'review_result', reply_to: id, baseline: status.request.baseline });
     response = locate(root, 'executor', responseId);
   }
   if (['reviewing', 'review_ready'].includes(state.phase)) saveState(root, { ...state, phase: 'review_decision', note: 'All requested quality reports sent; apply plan-backed findings automatically.' });
@@ -1247,6 +1470,8 @@ export function checkpoint(root, story, phase, note, options = {}) {
   check(PHASES.includes(phase), 'Invalid checkpoint phase.'); textCheck(note, 16000, 'Checkpoint note');
   check(typeof approved === 'boolean', 'Approval must be a boolean.');
   return transaction(root, root => {
+    // Planning changes no source, so the next story can be planned while a refactor runs; everything after waits.
+    if (phase !== 'planning') noRefactorWork(root);
     let state;
     try {
       const current = loadState(root);
@@ -1349,11 +1574,28 @@ export function checkpoint(root, story, phase, note, options = {}) {
   });
 }
 
+// Which role acts on each independent refactor phase. The executor and refactor otherwise wait it out; the planner,
+// designer, QA and an idle reviewer keep their story view (the next story may be planned meanwhile) with a refactor note.
+const TASK_ACTIONS = {
+  executor: { approved: 'refactor_implement', executing: 'refactor_implement', fixing: 'refactor_implement', reviewed: 'refactor_decision', done: 'refactor_cleanup' },
+  refactor: { proposed: 'refactor_discuss' },
+  reviewer: { reviewing: 'refactor_review' },
+};
 function resumed(root, role, fingerprint = sourceFingerprint) {
   roleCheck(role);
+  const task = refactorTask(root), action = task && TASK_ACTIONS[role]?.[task.phase];
+  // A resumed executor that finds its edits already made finishes them; it never rolls them back to start over.
+  const edited = task?.phase === 'executing' && action && fingerprint(root, task.fingerprint) !== task.baseline;
+  if (action) return { story: null, phase: task.phase, action, checkpoint: null, task, ...(action === 'refactor_decision' ? { reviews_left: MAX_REFACTOR_REVIEWS - task.round } : {}), ...(edited ? { source_changed: true } : {}) };
+  if (task && (role === 'executor' || role === 'refactor')) return { story: null, phase: task.phase, action: 'wait', checkpoint: null, task };
+  const state = storyResumed(root, role, fingerprint);
+  return task ? { ...state, refactor: { id: task.id, phase: task.phase } } : state;
+}
+
+function storyResumed(root, role, fingerprint) {
   if (assistRole(role)) {
     // Assist messages carry no workflow approval; keep existing integrity gates authoritative.
-    const current = resumed(root, 'executor', fingerprint);
+    const current = storyResumed(root, 'executor', fingerprint);
     if (current.action === 'blocked') return { ...current, message: undefined };
     const message = messages(root, role)[0];
     return { story: message?.story ?? current.story, phase: current.phase, action: message ? 'assist' : 'wait', checkpoint: current.checkpoint, ...(message ? { message } : {}) };
@@ -1430,14 +1672,18 @@ function readResume(root, role, fingerprint = sourceFingerprint) {
 }
 
 // Recheck upgrade gates under the same lock used by protocol writers.
-export function resourceUpgrade(root, apply, { changed = true } = {}) {
+// Harness files (.harness, .pi, .claude, AGENTS.md) are outside the source fingerprint, so an independent refactor's pinned
+// baselines survive them; only a product-file change (package.json) waits for it. The new runtime must still read the task.
+export function resourceUpgrade(root, apply, { changed = true, touchesSource = true } = {}) {
   fs.mkdirSync(safe(root, '.harness'), { recursive: true });
   return transaction(root, root => {
     if (changed) {
+      if (touchesSource) noRefactorWork(root); else refactorTask(root);
       const hasRecords = exists(safe(root, '.harness/active.json')) || exists(safe(root, '.harness/inbox'));
       if (hasRecords) {
+        // A refactor's own phases share names with story review phases; only the story's review freezes resources.
         const state = resumed(root, 'executor');
-        check(state.action !== 'blocked' && !['reviewing', 'review_ready', 'review_decision'].includes(state.phase), 'Review/workflow state blocks resource upgrades.');
+        check(state.action !== 'blocked' && (state.task || !['reviewing', 'review_ready', 'review_decision'].includes(state.phase)), 'Review/workflow state blocks resource upgrades.');
         for (const role of ['executor', 'reviewer']) check(!messages(root, role).some(item => ['review_request', 'review_result'].includes(item.kind) && !item.cancelled), 'Pending review message blocks resource upgrades.');
       }
     }
@@ -1449,6 +1695,7 @@ export function resourceUpgrade(root, apply, { changed = true } = {}) {
 export function maintenanceUpgrade(root, apply) {
   return transaction(root, root => {
     const state = loadState(root);
+    noRefactorWork(root);
     check(state?.phase === 'blocked' && state.approval?.kind === 'fix' && state.verified_baseline && state.request_id,
       'Maintenance requires a blocked, verified review-based implementation.');
     for (const role of ROLES) {
@@ -1477,6 +1724,13 @@ export function diagnose(root) {
     const lock = lockOwner(root);
     if (lock?.stale) return { error: staleLock(lock), next: 'Remove the stale lock with unlock --approved, then resume.' };
     if (lock) return { busy: true, next: 'Protocol writer busy; wait and check again.' };
+    const task = refactorTask(root);
+    if (task) {
+      const changed = ['reviewing', 'reviewed'].includes(task.phase) && sourceFingerprint(root, task.fingerprint) !== task.verified_baseline;
+      return { story: null, task: task.id, phase: task.phase, available: false,
+        ...(changed ? { error: 'Source changed after the refactor was verified; restore the verified source or close the refactor. A review of another version is not reused.' } : {}),
+        next: 'Use resume executor/reviewer/refactor and FLOW: 독립 리팩터링. Never reopen the completed story.' };
+    }
     const active = safe(root, '.harness/active.json');
     if (!exists(active)) return { story: null, available: false, next: 'No active baseline; plan or resume the current role.' };
     state = json(active); storyCheck(state.story);
@@ -1591,7 +1845,9 @@ export function status(root) {
     } catch (error) { queues[role] ??= []; errors.push(`${role} inbox: ${error.message}`); }
   }
   const state = roles.executor;
-  return { story: state.story, phase: state.phase, checkpoint: state.checkpoint, roles, inbox: queues, errors };
+  let refactor;
+  try { refactor = refactorStatus(root); } catch (error) { errors.push(`refactor: ${error.message}`); }
+  return { story: state.story, phase: state.phase, checkpoint: state.checkpoint, roles, inbox: queues, errors, ...(refactor ? { refactor } : {}) };
 }
 
 function timeoutCheck(timeout, allowZero) {
@@ -1613,7 +1869,7 @@ export async function waitReview(root, id, { timeout = 1800 } = {}) {
 }
 
 // Typed role messages that start work for a role that has no extension of its own; `skip` holds ids already handed over.
-const WAKE_TYPES = { designer: [['planner', 'c2h_design_request'], ['executor', 'c2h_quality_request']], qa: [['planner', 'c2h_qa_request'], ['executor', 'c2h_quality_request']],
+const WAKE_TYPES = { designer: [['planner', 'c2h_design_request'], ['executor', 'c2h_quality_request']], qa: [['planner', 'c2h_qa_request'], ['executor', 'c2h_quality_request']], refactor: [['executor', 'c2h_quality_request']],
   planner: [['designer', 'c2h_plan_feedback'], ['qa', 'c2h_qa_ready']] };
 function wakes(role, message) {
   let data; try { data = JSON.parse(message.message ?? ''); } catch { return false; }
@@ -1637,6 +1893,8 @@ export async function waitInbox(root, role, { timeout = 0, skip = new Set() } = 
       if (remaining <= 0) throw error;
       await sleep(Math.min(2000, remaining)); continue;
     }
+    if (!state.busy && state.task?.delivery_id && ['refactor_implement', 'refactor_review', 'refactor_decision', 'refactor_cleanup'].includes(state.action) && !skip.has(state.task.delivery_id))
+      return { id: state.task.delivery_id, kind: 'refactor_request', target: role, task: state.task.id };
     for (const message of state.busy ? [] : inbox(root, role).filter(data => kinds.includes(data.kind))) {
       if (skip.has(message.id)) continue;
       if (assistRole(role)) {

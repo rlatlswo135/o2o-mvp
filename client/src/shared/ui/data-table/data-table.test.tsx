@@ -5,20 +5,20 @@ import { functionalUpdate } from "@tanstack/react-table";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { ManualPagination } from "./data-table.engine.js";
-import type { DataTableQuery } from "./data-table.state.js";
+import type { ManualPagination } from "./data-table.engine.ts";
+import type { DataTableQuery } from "./data-table.state.ts";
 
-import { EmptyState } from "../empty-state/empty-state.js";
-import { a11yStyles } from "../internal/control-styles.js";
-import { Skeleton } from "../skeleton/skeleton.js";
+import { EmptyState } from "../empty-state/empty-state.tsx";
+import { a11yStyles } from "../internal/control-styles.ts";
+import { Skeleton } from "../skeleton/skeleton.tsx";
 import {
   createAppColumnHelper,
   nextPagination,
   useAppTable,
   useDataTableEngine,
-} from "./data-table.engine.js";
-import { DataTable } from "./data-table.js";
-import { resolveListState } from "./data-table.state.js";
+} from "./data-table.engine.ts";
+import { resolveListState } from "./data-table.state.ts";
+import { DataTable } from "./data-table.tsx";
 
 type Row = { id: number; name: string };
 

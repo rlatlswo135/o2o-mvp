@@ -3,7 +3,6 @@ import { useIsMutating } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
 import { Button } from "@/shared/ui/button/button.tsx";
-import { Notice } from "@/shared/ui/notice/notice.tsx";
 import { Sheet } from "@/shared/ui/sheet/sheet.tsx";
 
 import { colors, radii, shadows } from "../../shared/ui/theme.stylex.ts";
@@ -34,12 +33,6 @@ export function TreatmentsPage() {
           예약에 쓸 시술의 기본 소요시간과 가격을 관리해요.
         </p>
       </div>
-
-      <Notice
-        tone="info"
-        title="가상 데이터로 확인하는 화면이에요"
-        description="등록한 시술은 서버에 저장되지 않아요. 다른 메뉴에 다녀와도 남아 있지만, 새로고침하면 처음 목록으로 돌아가요."
-      />
 
       <div {...stylex.props(styles.card)}>
         <TreatmentList

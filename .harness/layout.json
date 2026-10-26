@@ -4,13 +4,15 @@
     "executor",
     "reviewer",
     "designer",
-    "qa"
+    "qa",
+    "refactor"
   ],
   "agents": {
     "planner": "pi",
     "executor": "claude",
     "reviewer": "pi",
     "designer": "claude",
-    "qa": "pi"
+    "qa": "pi",
+    "refactor": "pi"
   }
 }

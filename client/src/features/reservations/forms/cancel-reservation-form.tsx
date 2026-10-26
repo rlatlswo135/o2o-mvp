@@ -1,9 +1,11 @@
+import type { Reservation } from "@o2o/shared/contracts";
 import type { FormEvent } from "react";
 
 import * as stylex from "@stylexjs/stylex";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import type { NoticeContent } from "@/shared/ui/notice/notice.tsx";
 
@@ -13,7 +15,6 @@ import { Field } from "@/shared/ui/field/field.tsx";
 import { Textarea } from "@/shared/ui/textarea/textarea.tsx";
 import { toast } from "@/shared/ui/toast/toast.tsx";
 
-import type { Reservation } from "../reservations.mock.ts";
 import type { CancelInput } from "../reservations.schema.ts";
 
 import { colors, controls } from "../../../shared/ui/theme.stylex.ts";
@@ -22,6 +23,8 @@ import { cancelInputSchema } from "../reservations.schema.ts";
 import {
   dateOf,
   formatDay,
+  formatMinutes,
+  formatMoment,
   formatMonthDay,
   sameDay,
   timeOf,
@@ -41,10 +44,19 @@ const listNote = (refreshed: boolean) =>
     ? "목록을 최신 상태로 바꿨어요."
     : "목록을 다시 불러오지 못했으니 목록에서 다시 시도해주세요.";
 
-const saveFailed: NoticeContent = {
-  tone: "danger",
-  title: "예약을 취소하지 못했어요.",
-  description: "예약은 그대로예요. 잠시 후 다시 시도해주세요.",
+// 취소됐을 수도 있어 '예약은 그대로'라고 단정하지 않는다. 반복 취소는 처음 기록을 바꾸지 않는다
+const cancelUnknown: NoticeContent = {
+  tone: "warning",
+  title: "취소됐는지 확인하지 못했어요.",
+  description: "서버에서 취소됐을 수도 있어요. 다시 시도해도 처음 취소한 기록은 바뀌지 않아요.",
+};
+
+// 서버가 확인한 처음 취소 시각·사유. 목록 재조회 결과에 기대지 않는다
+const alreadyCancelledDescription = ({ cancelledAt, cancelReason, startAt }: Reservation) => {
+  const when = cancelledAt === null ? "" : `${formatMoment(cancelledAt, yearOf(startAt))}에 `;
+  const record =
+    cancelReason === null ? "처음 취소한 기록" : `처음 취소한 기록(사유: ${cancelReason})`;
+  return `${when}먼저 취소됐어요. ${record}은 그대로 남아 있어요.`;
 };
 
 export function CancelReservationForm({
@@ -54,6 +66,7 @@ export function CancelReservationForm({
 }: CancelReservationFormProps) {
   const queryClient = useQueryClient();
   const dismissRef = useRef<HTMLButtonElement>(null);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
   const [notice, setNotice] = useState<NoticeContent | null>(null);
   // 이미 취소됐거나 없는 예약이면 더 취소할 수 없다
   const [stale, setStale] = useState(false);
@@ -86,7 +99,7 @@ export function CancelReservationForm({
             setNotice({
               tone: "warning",
               title: "이미 취소된 예약이에요.",
-              description: `${listNote(result.refreshed)} 처음 취소한 기록은 그대로 남아 있어요.`,
+              description: alreadyCancelledDescription(result.reservation),
             });
             break;
           case "not_found":
@@ -97,8 +110,18 @@ export function CancelReservationForm({
               description: listNote(result.refreshed),
             });
             break;
-          case "failed":
-            setNotice(saveFailed);
+          case "rejected":
+            // 사유 외에는 보내는 입력이 없다
+            flushSync(() =>
+              form.setFieldMeta("reason", (meta) => ({
+                ...meta,
+                errorMap: { ...meta.errorMap, onSubmit: "취소 사유를 다시 확인해주세요." },
+              })),
+            );
+            reasonRef.current?.focus();
+            break;
+          case "unknown":
+            setNotice(cancelUnknown);
             break;
         }
       },
@@ -123,7 +146,8 @@ export function CancelReservationForm({
     void form.handleSubmit();
   };
 
-  const { customer, treatment, startAt, endAt } = reservation;
+  const { customer, treatments, startAt, endAt } = reservation;
+  const totalMinutes = treatments.reduce((sum, treatment) => sum + treatment.duration, 0);
 
   return (
     <ReservationSheetFrame
@@ -147,14 +171,38 @@ export function CancelReservationForm({
           {customer.name} · {formatPhone(customer.phone)}
         </p>
         <p {...stylex.props(styles.summaryWhen)}>
-          {formatDay(startAt)} {timeOf(startAt)} –{" "}
-          {sameDay(startAt, endAt)
-            ? timeOf(endAt)
-            : `${formatDay(endAt, yearOf(startAt))} ${timeOf(endAt)}`}
+          <span {...stylex.props(styles.nowrap)}>
+            {formatDay(startAt)} {timeOf(startAt)}
+          </span>{" "}
+          –{" "}
+          <span {...stylex.props(styles.nowrap)}>
+            {sameDay(startAt, endAt)
+              ? timeOf(endAt)
+              : `${formatDay(endAt, yearOf(startAt))} ${timeOf(endAt)}`}
+          </span>
         </p>
-        <p {...stylex.props(styles.summaryTreatment)}>
-          {treatment.name} · {treatment.duration}분
-        </p>
+        {treatments.length === 1 ? (
+          treatments.map((treatment) => (
+            <p key={treatment.id} {...stylex.props(styles.summaryTreatment)}>
+              {treatment.name} ·{" "}
+              <span {...stylex.props(styles.nowrap)}>{formatMinutes(treatment.duration)}</span>
+            </p>
+          ))
+        ) : (
+          <>
+            <ul {...stylex.props(styles.treatments)}>
+              {treatments.map((treatment) => (
+                <li key={treatment.id}>
+                  {treatment.name} ·{" "}
+                  <span {...stylex.props(styles.nowrap)}>{formatMinutes(treatment.duration)}</span>
+                </li>
+              ))}
+            </ul>
+            <p {...stylex.props(styles.summaryTreatment)}>
+              시술 {treatments.length}개 · 총 {formatMinutes(totalMinutes)}
+            </p>
+          </>
+        )}
       </div>
 
       <form.Field name="reason">
@@ -162,9 +210,10 @@ export function CancelReservationForm({
           <Field
             label="취소 사유 (선택)"
             description="입력하면 '취소 포함' 목록에서 확인할 수 있어요."
-            error={field.state.meta.errors[0]?.message}
+            error={firstError(field.state.meta.errors)}
           >
             <Textarea
+              ref={reasonRef}
               name={field.name}
               rows={3}
               maxLength={200}
@@ -200,9 +249,29 @@ const styles = stylex.create({
     fontSize: "15px",
     fontVariantNumeric: "tabular-nums",
   },
+  treatments: {
+    marginTop: "2px",
+    marginBottom: 0,
+    marginInline: 0,
+    paddingLeft: "18px",
+    color: colors.textMuted,
+    fontSize: controls.labelFontSize,
+    lineHeight: "20px",
+    overflowWrap: "anywhere",
+  },
   summaryTreatment: {
     margin: 0,
     color: colors.textMuted,
     fontSize: controls.labelFontSize,
+    overflowWrap: "anywhere",
+  },
+  nowrap: {
+    whiteSpace: "nowrap",
   },
 });
+
+// 스키마 오류는 issue 객체, 서버 오류는 문자열
+function firstError(errors: ReadonlyArray<string | { message: string } | undefined>) {
+  const [error] = errors;
+  return typeof error === "string" ? error : error?.message;
+}

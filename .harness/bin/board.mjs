@@ -15,6 +15,12 @@ export { fit } from './terminal.mjs';
 export function workflowHints(status, quality) {
   const alerts = {}, executor = status.roles.executor?.action, planner = status.roles.planner?.action;
   if (status.phase === 'blocked' || executor === 'blocked' || status.errors?.length) return { alerts: { executor: '진행 중단 — 상태·원인 확인 필요' }, next: ['사용자'], reason: 'blocked' };
+  const task = status.refactor?.task;
+  if (task) {
+    const target = task.phase === 'proposed' ? 'refactor' : task.phase === 'reviewing' ? 'reviewer' : 'executor';
+    const label = { proposed: '독립 수정안 — 논의·승인 대기', approved: '독립 리팩터링 — 승인 범위 수정·검증', executing: '독립 리팩터링 — 승인 범위 수정·검증', reviewing: '독립 리팩터링 리뷰 — 동작·범위·검증 확인', reviewed: '리팩터링 리뷰 결과 판단 — 반영 또는 종료', fixing: '리팩터링 리뷰 지적 반영·재검증', done: '독립 수정 완료 — 임시 기록 정리' }[task.phase];
+    return { alerts: { [target]: label }, next: [target], reason: task.phase === 'proposed' ? 'workflow' : 'auto' };
+  }
   if (status.checkpoint?.verification && quality?.request && status.phase === 'implementation_done' && status.checkpoint.verified_baseline !== quality.request.baseline)
     return { alerts: { executor: '수정 재리뷰·QA 재검증 자동 요청 — 이전 PASS 재사용 불가' }, next: ['executor'], reason: 'auto' };
   if (quality?.pending?.length) return { alerts, next: quality.pending, reason: 'checks' };
@@ -57,6 +63,10 @@ export function boardState(root, { env = process.env, live = () => liveRoles(roo
   const hints = workflowHints(status, quality);
   hints.next = [...new Set(hints.next.map(role => role === '사용자' || roles.some(row => row.role === role) ? role : '사용자'))];
   for (const row of roles) { row.alert = hints.alerts[row.role] ?? null; row.hint = row.alert ? hints.reason : null; if (row.alert && hints.reason !== 'auto') attention.unshift(`${row.role}: ${row.alert}`); }
+  if (!status.refactor?.task && status.refactor?.advice.length) {
+    const row = roles.find(row => row.role === 'refactor');
+    if (row && !row.alert) row.alert = `보관된 구조 제안 ${status.refactor.advice.length}개 — 대화로 확인`;
+  }
   const diagnostics = runtime.diagnose(root), stories = runtime.storyIndex(root);
   if (diagnostics.error) issue(diagnostics.error);
   if (diagnostics.busy) attention.push(diagnostics.next);
@@ -70,11 +80,11 @@ export function boardState(root, { env = process.env, live = () => liveRoles(roo
   if (status.story && status.phase === 'planning' && selected.includes('designer')) try { designPending = runtime.designPending(root, status.story); } catch {}
   // While a requested design is still open the planner waits for the designer, so the designer is next.
   if (designPending && hints.reason === 'workflow') hints.next = ['designer'];
-  const stage = { designPending, qaPending: Boolean(quality?.pending?.includes('qa')), blocked: status.phase === 'blocked' || hints.reason === 'blocked', started: Boolean(status.checkpoint?.approval) };
+  const stage = { designPending, qaPending: Boolean(quality?.pending?.includes('qa')), refactorPending: Boolean(quality?.pending?.includes('refactor')), blocked: status.phase === 'blocked' || hints.reason === 'blocked', started: Boolean(status.checkpoint?.approval) };
   let usage = null; try { usage = displayUsage(env); } catch {}
   // A finished story's result.md headline, "한 일" lines and checks for the complete screen.
   let outcome = null; if (status.phase === 'done' && status.story) try { outcome = runtime.storyOutcome(root, status.story); } catch {}
-  return { story, phase: status.phase, outcome, workflow: JSON.stringify(status.checkpoint ?? null), next: hints.next, attention: [...new Set(attention)], problems: [...new Set(problems)], stories, roles, stage, usage, diagnostics, session: sessionName(root), root };
+  return { story, phase: status.phase, refactor: status.refactor, outcome, workflow: JSON.stringify(status.checkpoint ?? null), next: hints.next, attention: [...new Set(attention)], problems: [...new Set(problems)], stories, roles, stage, usage, diagnostics, session: sessionName(root), root };
 }
 
 // The oldest unread inbox message, named for the console's bubble edge.

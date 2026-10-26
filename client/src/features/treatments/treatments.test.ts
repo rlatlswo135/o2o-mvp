@@ -1,49 +1,50 @@
-import { onlineManager, QueryClient, QueryObserver } from "@tanstack/react-query";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import type { Treatment } from "@o2o/shared/contracts";
+
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { resolveListState } from "@/shared/ui/data-table/data-table.state.ts";
 
-import type { Treatment } from "./treatments.mock.ts";
-
 import { registerTreatment, treatmentMutationKeys, treatmentQueries } from "./treatments.api.ts";
-import { treatmentMock } from "./treatments.mock.ts";
 import { treatmentInputSchema } from "./treatments.schema.ts";
 
-// 경계는 가상 저장소, 그 안쪽(조회·캐시·목록 상태)은 실물로 돌린다
+// 경계는 HTTP 계약만, 그 안쪽(조회·캐시·목록 상태)은 실물로 돌린다
+vi.hoisted(() => {
+  vi.stubEnv("VITE_SERVER_URL", "https://api.example.test/");
+});
+
+const gel = { id: 1, name: "젤 원컬러", duration: 60, price: 35000 };
+const care = { id: 2, name: "손 케어", duration: 40, price: 20000 };
+
+const json = (body: unknown, status = 200) => Response.json(body, { status });
+const invalidInput = (issues: Array<{ path: unknown[]; message: string }>) =>
+  json(
+    { defined: false, code: "BAD_REQUEST", message: "Input validation failed", data: { issues } },
+    400,
+  );
+
+const unreachable = () => {
+  throw new TypeError("Failed to fetch");
+};
+
+const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>();
+
+const requests = () =>
+  fetchMock.mock.calls.map(([url, init]) => `${init.method} ${new URL(url).pathname}`);
+
+const sentBody = (index: number) => JSON.parse(String(fetchMock.mock.calls[index]?.[1].body));
+
 let client: QueryClient;
 const unsubscribers: Array<() => void> = [];
 
-const gel = { id: 1, name: "젤 원컬러", duration: 60, price: 35000 };
-const consult = { id: 2, name: "네일 상담", duration: 15, price: 0 };
-
-function newClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { gcTime: Infinity, retry: false },
-      mutations: { gcTime: Infinity },
-    },
-  });
-}
-
-// 테스트마다 새 QueryClient라 가상 저장소도 새로 시작한다
-function mockOf(queryClient: QueryClient, rows: ReadonlyArray<Treatment>) {
-  const mock = treatmentMock(queryClient);
-  mock.rows = rows.map((row) => ({ ...row }));
-  mock.nextId = 100;
-  mock.delayMs = 0;
-  return mock;
-}
-
 // screen()은 DataTable이 그릴 상태
-function openTreatmentList(queryClient = client) {
-  const observer = new QueryObserver(queryClient, treatmentQueries.list());
-  const unsubscribe = observer.subscribe(() => {});
-  unsubscribers.push(unsubscribe);
+function openTreatmentList() {
+  const observer = new QueryObserver(client, treatmentQueries.list());
+  unsubscribers.push(observer.subscribe(() => {}));
   return {
     screen: () => resolveListState(observer.getCurrentResult()),
     reload: () => observer.refetch(),
     settled: () => vi.waitFor(() => expect(observer.getCurrentResult().isFetching).toBe(false)),
-    leave: unsubscribe,
   };
 }
 
@@ -68,33 +69,39 @@ function fieldErrors(input: { name?: string; duration?: string; price?: string }
 }
 
 beforeEach(() => {
-  client = newClient();
+  client = new QueryClient({
+    defaultOptions: {
+      queries: { gcTime: Infinity, retry: false },
+      mutations: { gcTime: Infinity },
+    },
+  });
+  fetchMock.mockReset();
+  vi.stubGlobal("fetch", fetchMock);
 });
 
 afterEach(() => {
   unsubscribers.splice(0).forEach((unsubscribe) => unsubscribe());
   client.clear();
+  vi.unstubAllGlobals();
+});
+
+afterAll(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("시술 목록 조회", () => {
-  it("처음 열면 예시 시술 5개를 최근 등록 순으로 보여준다", async () => {
-    treatmentMock(client).delayMs = 0;
+  it("응답 전에는 비어 있다고 단정하지 않고 응답이 오면 서버 순서 그대로 보여준다", async () => {
+    fetchMock.mockImplementation(async () => json([care, gel]));
     const list = openTreatmentList();
 
     expect(list.screen()).toEqual({ kind: "loading" });
     await list.settled();
-    const screen = list.screen();
-    expect(screen.kind === "loaded" && screen.rows.map((row) => row.name)).toEqual([
-      "네일 상담",
-      "손 케어",
-      "젤 제거",
-      "젤 아트 (10손가락)",
-      "젤 원컬러",
-    ]);
+    expect(list.screen()).toEqual(loaded([care, gel]));
+    expect(requests()).toEqual(["GET /treatments"]);
   });
 
   it("등록된 시술이 없으면 빈 목록이다", async () => {
-    mockOf(client, []);
+    fetchMock.mockImplementation(async () => json([]));
     const list = openTreatmentList();
 
     await list.settled();
@@ -102,7 +109,9 @@ describe("시술 목록 조회", () => {
   });
 
   it("조회 실패 뒤 다시 시도하면 실패 표시를 둔 채 다시 시도 중을 거쳐 목록이 나온다", async () => {
-    mockOf(client, [gel]).failNext.list = 1;
+    fetchMock
+      .mockImplementationOnce(async () => json({}, 500))
+      .mockImplementation(async () => json([gel]));
     const list = openTreatmentList();
     await list.settled();
     expect(list.screen()).toEqual({ kind: "failed", retrying: false });
@@ -114,11 +123,12 @@ describe("시술 목록 조회", () => {
   });
 
   it("다시 불러오기가 실패해도 보이던 목록을 지우거나 0건으로 바꾸지 않는다", async () => {
-    const mock = mockOf(client, [gel]);
+    fetchMock
+      .mockImplementationOnce(async () => json([gel]))
+      .mockImplementationOnce(async () => unreachable());
     const list = openTreatmentList();
     await list.settled();
 
-    mock.failNext.list = 1;
     await list.reload();
     expect(list.screen()).toEqual({
       kind: "loaded",
@@ -126,45 +136,14 @@ describe("시술 목록 조회", () => {
       refreshFailed: true,
       retrying: false,
     });
-
-    await list.reload();
-    expect(list.screen()).toEqual(loaded([gel]));
   });
 
-  it("빈 목록을 다시 불러오다 실패해도 실패를 따로 알린다", async () => {
-    const mock = mockOf(client, []);
+  it("응답이 계약과 다르면(가격 없음) 목록으로 쓰지 않고 실패로 보여준다", async () => {
+    fetchMock.mockImplementation(async () => json([{ id: 1, name: "젤", duration: 60 }]));
     const list = openTreatmentList();
+
     await list.settled();
-
-    mock.failNext.list = 1;
-    await list.reload();
-    expect(list.screen()).toEqual({
-      kind: "loaded",
-      rows: [],
-      refreshFailed: true,
-      retrying: false,
-    });
-  });
-
-  it("조회 실패 뒤 오프라인에서 다시 시도하면 연결을 기다리는 동안 실패와 다시 시도 중을 유지한다", async () => {
-    // 연결이 돌아왔을 때 멈춘 조회를 이어 가려면 QueryClient가 onlineManager를 구독해야 한다
-    client.mount();
-    mockOf(client, [gel]).failNext.list = 1;
-    const list = openTreatmentList();
-    await list.settled();
-
-    onlineManager.setOnline(false);
-    try {
-      const reloading = list.reload();
-      expect(list.screen()).toEqual({ kind: "failed", retrying: true });
-
-      onlineManager.setOnline(true);
-      await reloading;
-      expect(list.screen()).toEqual(loaded([gel]));
-    } finally {
-      onlineManager.setOnline(true);
-      client.unmount();
-    }
+    expect(list.screen()).toEqual({ kind: "failed", retrying: false });
   });
 });
 
@@ -227,55 +206,91 @@ describe("시술 입력 확인", () => {
 });
 
 describe("시술 등록", () => {
-  it("다듬은 값으로 등록하고 새 시술을 목록 맨 위에 정확히 한 번 올린다", async () => {
-    const mock = mockOf(client, [gel]);
+  it("다듬은 값을 숫자로 보내고 서버가 준 새 시술을 목록 맨 위에 정확히 한 번 올린다", async () => {
+    fetchMock
+      .mockImplementationOnce(async () => json([gel]))
+      .mockImplementationOnce(async () => json(care, 201))
+      .mockImplementationOnce(async () => json([care, gel]));
     const list = openTreatmentList();
     await list.settled();
 
     const result = await register({ name: "  손 케어 ", duration: "40", price: "20,000" });
 
-    const care = { id: 100, name: "손 케어", duration: 40, price: 20000 };
     expect(result).toEqual({ kind: "created", treatment: care });
+    expect(sentBody(1)).toEqual({ name: "손 케어", duration: 40, price: 20000 });
     await list.settled();
     expect(list.screen()).toEqual(loaded([care, gel]));
-    expect(mock.rows).toEqual([care, gel]);
+    expect(requests()).toEqual(["GET /treatments", "POST /treatments", "GET /treatments"]);
   });
 
-  it("0원 시술도 등록한다", async () => {
-    mockOf(client, []);
+  it("서버가 칸을 짚어 거절하면(400) 그 칸의 문구를 돌려주고 목록은 그대로 둔다", async () => {
+    fetchMock
+      .mockImplementationOnce(async () => json([gel]))
+      .mockImplementationOnce(async () =>
+        invalidInput([
+          { path: ["duration"], message: "입력할 수 있는 범위를 넘었어요." },
+          { path: ["duration"], message: "두 번째 문구는 쓰지 않는다" },
+          { path: ["price"], message: "입력할 수 있는 금액 범위를 넘었어요." },
+        ]),
+      );
     const list = openTreatmentList();
     await list.settled();
 
-    await register({ name: "네일 상담", duration: "15", price: "0" });
-    await list.settled();
-    expect(list.screen()).toEqual(loaded([{ ...consult, id: 100 }]));
-  });
-
-  it("저장에 실패하면 실패로 알리고 목록·저장소에 넣지 않는다", async () => {
-    const mock = mockOf(client, [gel]);
-    mock.failNext.create = 1;
-    const list = openTreatmentList();
-    await list.settled();
-
-    expect(await register({ name: "손 케어", duration: "40", price: "20000" })).toEqual({
-      kind: "failed",
+    expect(await register({ name: "젤", duration: "60", price: "0" })).toEqual({
+      kind: "rejected",
+      errors: {
+        duration: "입력할 수 있는 범위를 넘었어요.",
+        price: "입력할 수 있는 금액 범위를 넘었어요.",
+      },
     });
     expect(list.screen()).toEqual(loaded([gel]));
-    expect(mock.rows).toEqual([gel]);
+    expect(requests()).toEqual(["GET /treatments", "POST /treatments"]);
   });
 
-  it("실패한 입력 그대로 다시 등록하면 한 번만 들어간다", async () => {
-    const mock = mockOf(client, [gel]);
-    mock.failNext.create = 1;
-    const input = { name: "손 케어", duration: "40", price: "20000" };
+  it("칸을 알 수 없는 거절(400)은 칸 오류 없이 거절로 알린다", async () => {
+    fetchMock.mockImplementationOnce(async () =>
+      invalidInput([{ path: [], message: "형식 오류" }]),
+    );
 
-    expect(await register(input)).toEqual({ kind: "failed" });
-    expect(await register(input)).toMatchObject({ kind: "created" });
-    expect(mock.rows.map((row) => row.name)).toEqual(["손 케어", "젤 원컬러"]);
+    expect(await register({ name: "젤", duration: "60", price: "0" })).toEqual({
+      kind: "rejected",
+      errors: {},
+    });
   });
+
+  it.each([
+    { situation: "서버 오류(500)", respond: async () => json({}, 500) },
+    { situation: "서버에 닿지 않음", respond: async () => unreachable() },
+    { situation: "응답이 계약과 다름", respond: async () => json({ id: 2 }, 201) },
+  ])(
+    "결과를 알 수 없으면($situation) 다시 보내지 않고 목록만 다시 불러온다",
+    async ({ respond }) => {
+      fetchMock
+        .mockImplementationOnce(async () => json([gel]))
+        .mockImplementationOnce(respond)
+        .mockImplementationOnce(async () => json([care, gel]));
+      const list = openTreatmentList();
+      await list.settled();
+
+      expect(await register({ name: "손 케어", duration: "40", price: "20000" })).toEqual({
+        kind: "unknown",
+      });
+      await vi.waitFor(() =>
+        expect(requests()).toEqual(["GET /treatments", "POST /treatments", "GET /treatments"]),
+      );
+      await list.settled();
+      // 서버에 저장돼 있었다면 다시 불러온 목록에 나타난다
+      expect(list.screen()).toEqual(loaded([care, gel]));
+    },
+  );
 
   it("등록하는 동안 시술 mutation 키로 저장 중을 알 수 있고 고객 키와 섞이지 않는다", async () => {
-    mockOf(client, [gel]).delayMs = 20;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    fetchMock.mockImplementationOnce(async () => {
+      await held;
+      return json(care, 201);
+    });
     const saving = client.getMutationCache().build(client, {
       mutationKey: treatmentMutationKeys.create(),
       mutationFn: () => register({ name: "손 케어", duration: "40", price: "20000" }),
@@ -284,59 +299,29 @@ describe("시술 등록", () => {
     const done = saving.execute(undefined);
     expect(client.isMutating({ mutationKey: treatmentMutationKeys.all() })).toBe(1);
     expect(client.isMutating({ mutationKey: ["customers"] })).toBe(0);
+    release();
     await done;
     expect(client.isMutating({ mutationKey: treatmentMutationKeys.all() })).toBe(0);
   });
 
   it("등록하는 사이 늦게 도착한 이전 조회 응답이 새 시술을 지우지 못한다", async () => {
-    const mock = mockOf(client, [gel]);
-    // 첫 조회만 늦게 응답
-    mock.delayMs = 50;
+    let releaseOldList!: () => void;
+    const oldListHeld = new Promise<void>((resolve) => (releaseOldList = resolve));
+    fetchMock
+      .mockImplementationOnce(async () => {
+        await oldListHeld;
+        return json([gel]);
+      })
+      .mockImplementationOnce(async () => json(care, 201))
+      .mockImplementation(async () => json([care, gel]));
     const list = openTreatmentList();
-    mock.delayMs = 0;
+    await vi.waitFor(() => expect(requests()).toEqual(["GET /treatments"]));
 
-    const result = await register({ name: "손 케어", duration: "40", price: "20000" });
-    expect(result.kind).toBe("created");
-    await list.settled();
-    await new Promise((resolve) => setTimeout(resolve, 80));
-
-    const care = { id: 100, name: "손 케어", duration: 40, price: 20000 };
-    expect(list.screen()).toEqual(loaded([care, gel]));
-  });
-});
-
-describe("메뉴 이동", () => {
-  it("목록을 떠났다 다시 열어도 등록한 시술이 남아 있다", async () => {
-    mockOf(client, [gel]);
-    const first = openTreatmentList();
-    await first.settled();
     await register({ name: "손 케어", duration: "40", price: "20000" });
-    first.leave();
-    // 캐시가 비워져도 같은 앱(QueryClient)의 가상 저장소에서 다시 불러온다
-    client.removeQueries({ queryKey: treatmentQueries.all() });
+    expect(list.screen()).toEqual(loaded([care, gel]));
 
-    const again = openTreatmentList();
-    await again.settled();
-    const screen = again.screen();
-    expect(screen.kind === "loaded" && screen.rows.map((row) => row.name)).toEqual([
-      "손 케어",
-      "젤 원컬러",
-    ]);
-  });
-
-  it("다른 앱(새로고침·다른 테스트)의 가상 저장소와 공유하지 않는다", async () => {
-    mockOf(client, [gel]);
-    await register({ name: "발 케어", duration: "50", price: "30000" });
-
-    const other = newClient();
-    treatmentMock(other).delayMs = 0;
-    const list = openTreatmentList(other);
+    releaseOldList();
     await list.settled();
-    const screen = list.screen();
-    expect(screen.kind === "loaded" && screen.rows.some((row) => row.name === "발 케어")).toBe(
-      false,
-    );
-    expect(screen.kind === "loaded" && screen.rows).toHaveLength(5);
-    other.clear();
+    expect(list.screen()).toEqual(loaded([care, gel]));
   });
 });

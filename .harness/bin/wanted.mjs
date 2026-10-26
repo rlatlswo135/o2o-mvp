@@ -263,7 +263,69 @@ const buggy = {
   },
 };
 
-export const MVP = { executor: luffy, reviewer: zoro, designer: sanji, planner: nami, qa: buggy };
+// ---------- Brook and Laboon: a guitar call, a friendly head pat, then the whale answers with a splash ----------
+const BROOK = [
+  '.aAaaaaAa...........',
+  'aAaaaaaaAa..........',
+  'aaaaaaaaaa..........',
+  '.wwwwwwww...........',
+  '.wkkwwkkw...........',
+  '.wkkwwkkw...........',
+  '..wwkkww............',
+  '..wkwkwk............',
+  '..cwwwwc............',
+  '..ckkwkc............',
+  '..cwwwwc............',
+  '..bkkwkb............',
+  '...w..w.............',
+  '...w..w.............',
+  '..nw..wn............',
+  '....................',
+];
+const BROOK_PAL = { a: '#262333', A: '#45405A', w: '#F8F4DC', k: '#171923', c: '#A3D9F5', b: '#65A6CF', g: '#FFD24A', n: '#303044' };
+const brook = {
+  epithet: '「소울 킹」 브룩', move: '라분! 함께 노래해요!', bounty: 383000000,
+  bg: (x, y, t) => mix('#102E28', '#205348', y / 20 + .1 * Math.sin(t * 3 + x * .5)),
+  draw(S, t) {
+    const beat = Math.floor(t * 4) % 4, pat = beat >= 2, wx = pat ? 9 : 10, wy = pat ? 8 : 9;
+    paint(S, BROOK, BROOK_PAL);
+    // Keep the ribs exposed while the bone arm strums toward Laboon.
+    line((x, y, c) => dot(S, x, y, c), 2, 8, 1, 11, '#F8F4DC');
+    line((x, y, c) => dot(S, x, y, c), 1, 11, 8, 11, '#F8F4DC');
+    ['.t.tt.', 'tttttt', '.ttwt.', 'tt..tt'].forEach((row, y) => [...row].forEach((k, x) => { if (k !== '.') dot(S, 5 + x, 10 + y, k === 'w' ? '#BFFFE8' : '#28BCA5'); }));
+    line((x, y, c) => dot(S, x, y, c), 8, 11, 13, 7, '#BFFFE8');
+    dot(S, 13, 6, '#28BCA5'); dot(S, 14, 7, '#28BCA5');
+    dot(S, 8, 10 + beat % 2, '#F8F4DC'); dot(S, 10, 8, '#F8F4DC');
+    // Laboon leans into Brook's hand on the answering beat; forehead scars distinguish him from a generic whale.
+    const pal = { b: '#344C78', B: '#516D99', w: '#C9E9F5', e: '#FFFFFF' };
+    ['..BBBB....', '.BBbbbB...', 'BBbbbbbB.b', 'bbebbbbbbb', 'bbwwwwwbb.', '.bbbbbbb..', '..bb..b...'].forEach((row, y) => [...row].forEach((k, x) => { if (k !== '.') dot(S, wx + x, wy + y, pal[k]); }));
+    [[3, 0], [4, 1], [5, 0], [3, 2], [5, 2]].forEach(([x, y]) => dot(S, wx + x, wy + y, '#1B293F'));
+    dot(S, wx + 2, wy + 3, pat ? '#1B293F' : '#FFFFFF');
+    if (pat) { dot(S, wx + 1, wy + 2, '#1B293F'); dot(S, wx + 3, wy + 2, '#1B293F'); line((x, y, c) => dot(S, x, y, c), 7, 9, wx + 1, wy + 1, '#F8F4DC'); }
+    dot(S, 18, wy + 2, '#516D99');
+    dot(S, 19, wy + 1, '#516D99'); dot(S, 19, wy, '#344C78');
+    dot(S, 17, wy + 1, '#516D99'); dot(S, 16, wy, '#344C78');
+    // Notes travel from guitar to whale; spout/splash answers the same four-beat phrase.
+    for (let k = 0; k < 2; k++) {
+      const p = (t * .8 + k * .5) % 1, x = 9 + p * 9, y = 5 - Math.sin(p * Math.PI) * 3;
+      line((a, b, c) => dotE(S, a, b, c), x, y, x, y + 2, '#B6FF58'); dotE(S, x - 1, y + 2, '#B6FF58'); dotE(S, x + 1, y, '#B6FF58');
+    }
+    if (pat) {
+      line((x, y, c) => dot(S, x, y, c), wx + 5, wy - 1, wx + 5, wy - 4, '#92E8FF');
+      for (const side of [-1, 1]) { dot(S, wx + 5 + side, wy - 5, '#D5F7FF'); dot(S, wx + 5 + side * 2, wy - 4, '#92E8FF'); dot(S, wx + 5 + side * 3, wy - 2 + beat % 2, '#92E8FF'); }
+    }
+    for (let x = 0; x < 20; x++) dot(S, x, 15, (x + beat) % 4 ? '#2E6BA8' : '#92E8FF');
+  },
+  over(plot, box, t) {
+    for (let k = 0; k < 4; k++) {
+      const p = (t * .7 + k / 4) % 1, x = box.x - 1 + p * (box.w + 2), y = box.y + 3 - Math.sin(p * Math.PI) * 2;
+      line(plot, x, y, x, y + 2, '#B6FF58'); plot(x - 1, y + 2, '#B6FF58'); plot(x + 1, y, '#B6FF58');
+      plot(box.x + box.w - 3 + Math.sin(t * 5 + k) * 2, box.y + box.h - 2 - p * 5, '#92E8FF');
+    }
+  },
+};
+
+export const MVP = { executor: luffy, reviewer: zoro, designer: sanji, planner: nami, qa: buggy, refactor: brook };
 export function portrait(role, t) {
   const art = MVP[role], S = buf(20, 16);
   art.draw(S, t);

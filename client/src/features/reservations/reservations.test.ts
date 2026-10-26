@@ -1,11 +1,16 @@
+import type { Reservation } from "@o2o/shared/contracts";
+
+import { endAtOf } from "@o2o/shared/contracts";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { resolveListState } from "@/shared/ui/data-table/data-table.state.ts";
 
-import type { Reservation, ReservationListParams } from "./reservations.mock.ts";
+import type { ReservationListParams } from "./reservations.api.ts";
 import type { ReservationChoices, ReservationFormValues } from "./reservations.schema.ts";
 
+import { customerQueries } from "../customers/customers.api.ts";
+import { treatmentQueries } from "../treatments/treatments.api.ts";
 import {
   cancelReservation,
   registerReservation,
@@ -13,15 +18,22 @@ import {
   reservationQueries,
   updateReservation,
 } from "./reservations.api.ts";
-import { reservationMock } from "./reservations.mock.ts";
-import { cancelInputSchema, reservationInputSchema } from "./reservations.schema.ts";
+import {
+  cancelInputSchema,
+  previewSchedule,
+  rejectionErrors,
+  reservationInputSchema,
+  treatmentMessages,
+  treatmentRows,
+} from "./reservations.schema.ts";
 import {
   addDays,
   dayRange,
-  endAtOf,
   formatBarDate,
   formatDay,
+  formatMinutes,
   formatMoment,
+  formatTotal,
   isSupportedDate,
   parseDate,
   startAtOf,
@@ -29,46 +41,91 @@ import {
   todayKst,
 } from "./reservations.time.ts";
 
-// 경계는 가상 저장소, 그 안쪽(조회·캐시·목록 상태)은 실물로 돌린다
-let client: QueryClient;
-const unsubscribers: Array<() => void> = [];
+// 경계는 HTTP 계약만, 그 안쪽(조회·캐시·목록 상태)은 실물로 돌린다
+vi.hoisted(() => {
+  vi.stubEnv("VITE_SERVER_URL", "https://api.example.test/");
+});
 
 const seo = { id: 1, name: "김서연", phone: "01012345678" };
 const seoSameName = { id: 2, name: "김서연", phone: "01090123456" };
 const gel = { id: 1, name: "젤 원컬러", duration: 60 };
 const art = { id: 2, name: "젤 아트 (10손가락)", duration: 90 };
+const care = { id: 3, name: "손 케어", duration: 30 };
 
 const choices: ReservationChoices = {
-  customers: { status: "ready", items: [seo, seoSameName] },
-  treatments: { status: "ready", items: [gel, art] },
-  keptTreatment: null,
+  customers: { kind: "ready", items: [seo, seoSameName] },
+  treatments: { kind: "ready", items: [gel, art, care] },
+  keptCustomer: null,
+  keptTreatments: [],
+  seenTreatments: [],
 };
 
 const values: ReservationFormValues = {
   customerId: "1",
-  treatmentId: "1",
+  treatmentIds: ["1"],
   date: "2026-10-22",
   startTime: "10:00",
 };
 
-function newClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { gcTime: Infinity, retry: false },
-      mutations: { gcTime: Infinity },
-    },
-  });
+// 2026-10-22 10:00(한국 시간)에 시작하는 젤 원컬러 60분
+const at = (hour: number, minute = 0, day = 22) => Date.UTC(2026, 9, day, hour - 9, minute);
+
+function reservation(overrides: Partial<Reservation> = {}): Reservation {
+  const startAt = overrides.startAt ?? at(10);
+  const treatments = overrides.treatments ?? [gel];
+  const minutes = treatments.reduce((sum, item) => sum + item.duration, 0);
+  return {
+    id: 100,
+    customer: seo,
+    treatments,
+    startAt,
+    endAt: startAt + minutes * 60_000,
+    cancelledAt: null,
+    cancelReason: null,
+    ...overrides,
+  };
 }
 
-function mockOf(queryClient: QueryClient, rows: ReadonlyArray<Reservation> = []) {
-  const mock = reservationMock(queryClient);
-  mock.rows = rows.map((row) => structuredClone(row));
-  mock.nextId = 100;
-  mock.delayMs = 0;
-  return mock;
+const json = (body: unknown, status = 200) => Response.json(body, { status });
+// 계약에 정의한 오류. oRPC는 이 모양의 본문만 오류로 읽는다
+const defined = (code: string, status: number, data?: unknown) =>
+  json({ defined: true, code, message: code, data }, status);
+const invalidInput = (issues: Array<{ path: unknown[]; message: string }>) =>
+  json(
+    { defined: false, code: "BAD_REQUEST", message: "Input validation failed", data: { issues } },
+    400,
+  );
+
+const unreachable = () => {
+  throw new TypeError("Failed to fetch");
+};
+
+const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>();
+
+const requestOf = (url: string, init: RequestInit) => {
+  const { pathname, search } = new URL(url);
+  return `${init.method} ${pathname}${decodeURIComponent(search)}`;
+};
+
+const requests = () => fetchMock.mock.calls.map(([url, init]) => requestOf(url, init));
+
+const sentBody = (request: string) => {
+  const call = fetchMock.mock.calls.find(([url, init]) => requestOf(url, init) === request);
+  return JSON.parse(String(call?.[1].body));
+};
+
+// 요청 문자열("GET /reservations?…")마다 응답을 고른다
+function serve(respond: (request: string) => Response | Promise<Response>) {
+  fetchMock.mockImplementation(async (url, init) => respond(requestOf(url, init)));
 }
 
-// 폼처럼 스키마로 확인해 저장할 값을 만든다
+const listOf = (date: string, includeCancelled = false) =>
+  `GET /reservations?date=${date}&includeCancelled=${includeCancelled}`;
+
+let client: QueryClient;
+const unsubscribers: Array<() => void> = [];
+
+// 폼처럼 스키마로 확인해 보낼 값을 만든다
 function input(overrides: Partial<ReservationFormValues> = {}, withChoices = choices) {
   return reservationInputSchema(withChoices).parse({ ...values, ...overrides });
 }
@@ -86,22 +143,20 @@ function register(overrides: Partial<ReservationFormValues> = {}) {
   return registerReservation(client, input(overrides));
 }
 
-function openList(params: ReservationListParams, queryClient = client) {
-  const observer = new QueryObserver(queryClient, {
-    ...reservationQueries.list(params),
-    gcTime: 0,
-  });
+// rows()는 DataTable이 그릴 행. 불러오지 못했으면 null
+function openList(params: ReservationListParams) {
+  const observer = new QueryObserver(client, reservationQueries.list(params));
   const unsubscribe = observer.subscribe(() => {});
   unsubscribers.push(unsubscribe);
+  const screen = () => resolveListState(observer.getCurrentResult());
   return {
-    screen: () => resolveListState(observer.getCurrentResult()),
+    screen,
     reload: () => observer.refetch(),
     settled: () => vi.waitFor(() => expect(observer.getCurrentResult().isFetching).toBe(false)),
     rows: () => {
-      const screen = resolveListState(observer.getCurrentResult());
-      return screen.kind === "loaded" ? screen.rows : null;
+      const current = screen();
+      return current.kind === "loaded" ? current.rows : null;
     },
-    leave: unsubscribe,
   };
 }
 
@@ -114,13 +169,24 @@ const times = (rows: ReadonlyArray<Reservation> | null) =>
   rows?.map((row) => `${timeOf(row.startAt)} ${row.customer.name}`);
 
 beforeEach(() => {
-  client = newClient();
+  client = new QueryClient({
+    defaultOptions: {
+      queries: { gcTime: Infinity, retry: false },
+      mutations: { gcTime: Infinity },
+    },
+  });
+  fetchMock.mockReset();
+  vi.stubGlobal("fetch", fetchMock);
 });
 
 afterEach(() => {
   unsubscribers.splice(0).forEach((unsubscribe) => unsubscribe());
   client.clear();
-  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+afterAll(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("한국 시간 날짜 계산", () => {
@@ -184,35 +250,53 @@ describe("한국 시간 날짜 계산", () => {
     expect(formatDay(endAtOf(leap, 60) ?? 0)).toBe("2월 29일(화)");
   });
 
-  it("달력에 나타낼 수 없는 먼 종료 일시는 계산하지 않는다", () => {
-    const start = startAtOf("2099-12-31", "23:59") ?? 0;
-    expect(endAtOf(start, 60 * 24 * 365 * 8000)).toBeNull();
-    expect(endAtOf(start, Number.MAX_SAFE_INTEGER)).toBeNull();
-    expect(endAtOf(start, 60)).not.toBeNull();
-  });
-
   it("날짜 바 표시는 요일까지 한국 시간으로 쓴다", () => {
     expect(formatBarDate("2026-10-22")).toBe("10월 22일 목요일");
     expect(formatBarDate("2028-02-29")).toBe("2월 29일 화요일");
   });
+
+  it("분은 천 단위 쉼표로, 합계는 60분부터 시간을 함께 쓴다", () => {
+    expect(formatMinutes(1500)).toBe("1,500분");
+    expect(formatTotal(45)).toBe("총 45분");
+    expect(formatTotal(60)).toBe("총 60분 (1시간)");
+    expect(formatTotal(90)).toBe("총 90분 (1시간 30분)");
+    expect(formatTotal(1500)).toBe("총 1,500분 (25시간)");
+  });
 });
 
 describe("예약 입력 확인", () => {
-  it("선택한 고객·시술 정보와 종료 일시를 계산해 저장할 값을 만든다", () => {
-    const result = input();
-    expect(result.customer).toEqual(seo);
-    expect(result.treatment).toEqual(gel);
-    expect(result.startAt).toBe(Date.UTC(2026, 9, 22, 1, 0));
-    expect(result.endAt).toBe(Date.UTC(2026, 9, 22, 2, 0));
+  it("고객 id·시술 id·시작 일시만 보낸다(이름·종료 일시는 서버가 정한다)", () => {
+    expect(input()).toEqual({ customerId: 1, treatmentIds: [1], startAt: at(10) });
   });
 
   it("같은 이름의 고객도 id로 구분한다", () => {
-    expect(input({ customerId: "2" }).customer).toEqual(seoSameName);
+    expect(input({ customerId: "2" }).customerId).toBe(2);
   });
 
-  it("자정을 넘기는 예약은 다음 날 종료로 계산한다", () => {
-    const result = input({ treatmentId: "2", startTime: "23:30" });
-    expect(formatMoment(result.endAt)).toBe("10월 23일 01:00");
+  it("시술 여러 개는 체크한 순서가 아니라 체크 목록 순서로 보낸다", () => {
+    expect(input({ treatmentIds: ["3", "1"] }).treatmentIds).toEqual([1, 3]);
+  });
+
+  it("23:30에 30분+60분 시술이면 총 90분, 다음 날 01:00에 끝난다", () => {
+    const preview = previewSchedule(
+      { ...values, treatmentIds: ["3", "1"], startTime: "23:30" },
+      choices,
+    );
+
+    expect(preview.rows.map((row) => row.id)).toEqual([1, 3]);
+    expect(preview.totalMinutes).toBe(90);
+    expect(formatTotal(preview.totalMinutes ?? 0)).toBe("총 90분 (1시간 30분)");
+    expect(formatMoment(preview.schedule?.endAt ?? 0)).toBe("10월 23일 01:00");
+    expect(preview.outOfRange).toBe(false);
+  });
+
+  it("날짜·시각이 아직 올바르지 않으면 합계만 보여주고 종료 일시는 계산하지 않는다", () => {
+    const preview = previewSchedule(
+      { ...values, treatmentIds: ["1", "2"], startTime: "" },
+      choices,
+    );
+    expect(preview.totalMinutes).toBe(150);
+    expect(preview.schedule).toBeNull();
   });
 
   it.each([
@@ -227,20 +311,15 @@ describe("예약 입력 확인", () => {
       field: "customerId",
       message: "목록에 없는 고객이에요. 다시 선택해주세요.",
     },
-    { overrides: { treatmentId: "" }, field: "treatmentId", message: "시술을 선택해주세요." },
+    { overrides: { treatmentIds: [] }, field: "treatmentIds", message: treatmentMessages.none },
     {
-      overrides: { treatmentId: "99" },
-      field: "treatmentId",
-      message: "목록에 없는 시술이에요. 다시 선택해주세요.",
+      overrides: { treatmentIds: ["1", "99"] },
+      field: "treatmentIds",
+      message: treatmentMessages.vanished,
     },
     { overrides: { date: "" }, field: "date", message: "예약 날짜를 입력해주세요." },
     {
       overrides: { date: "2026-02-30" },
-      field: "date",
-      message: "없는 날짜예요. 날짜를 다시 확인해주세요.",
-    },
-    {
-      overrides: { date: "2026-1-5" },
       field: "date",
       message: "없는 날짜예요. 날짜를 다시 확인해주세요.",
     },
@@ -256,16 +335,6 @@ describe("예약 입력 확인", () => {
       message: "시작 시각을 분 단위로 다시 입력해주세요.",
     },
     {
-      overrides: { startTime: "10:60" },
-      field: "startTime",
-      message: "시작 시각을 분 단위로 다시 입력해주세요.",
-    },
-    {
-      overrides: { startTime: "10:00:30" },
-      field: "startTime",
-      message: "시작 시각을 분 단위로 다시 입력해주세요.",
-    },
-    {
       overrides: { startTime: "9:00" },
       field: "startTime",
       message: "시작 시각을 분 단위로 다시 입력해주세요.",
@@ -274,79 +343,159 @@ describe("예약 입력 확인", () => {
     expect(fieldErrors(overrides)).toEqual({ [field]: message });
   });
 
-  it("여러 필드가 틀리면 각 필드 오류를 함께 알린다", () => {
-    expect(fieldErrors({ customerId: "", treatmentId: "", date: "", startTime: "" })).toEqual({
+  it("여러 칸이 틀리면 각 칸 오류를 함께 알린다", () => {
+    expect(fieldErrors({ customerId: "", treatmentIds: [], date: "", startTime: "" })).toEqual({
       customerId: "고객을 선택해주세요.",
-      treatmentId: "시술을 선택해주세요.",
+      treatmentIds: treatmentMessages.none,
       date: "예약 날짜를 입력해주세요.",
       startTime: "시작 시각을 입력해주세요.",
     });
   });
 
   it("고객·시술 목록을 불러오는 중이거나 고를 수 없으면 값이 있어도 저장하지 않는다", () => {
-    expect(
-      fieldErrors(
-        {},
-        {
-          ...choices,
-          customers: { status: "loading", items: [] },
-          treatments: { status: "loading", items: [] },
-        },
-      ),
-    ).toEqual({
-      customerId: "고객 목록을 불러온 뒤 선택해주세요.",
-      treatmentId: "시술 목록을 불러온 뒤 선택해주세요.",
-    });
-    expect(
-      fieldErrors(
-        {},
-        {
-          ...choices,
-          customers: { status: "unavailable", items: [] },
-          treatments: { status: "unavailable", items: [] },
-        },
-      ),
-    ).toEqual({
-      customerId: "선택할 수 있는 고객이 없어요.",
-      treatmentId: "선택할 수 있는 시술이 없어요.",
-    });
-  });
-
-  it("소요시간이 올바르지 않은 시술은 예약하지 않는다", () => {
-    const broken = {
+    const loading: ReservationChoices = {
       ...choices,
-      treatments: { status: "ready" as const, items: [{ ...gel, duration: 0 }] },
+      customers: { kind: "loading", items: [] },
+      treatments: { kind: "loading", items: [] },
     };
-    expect(fieldErrors({}, broken)).toEqual({
-      treatmentId: "이 시술은 소요시간이 올바르지 않아 예약할 수 없어요.",
+    expect(fieldErrors({}, loading)).toEqual({
+      customerId: "고객 목록을 불러온 뒤 선택해주세요.",
+      treatmentIds: treatmentMessages.loading,
+    });
+    const failed: ReservationChoices = {
+      ...choices,
+      customers: { kind: "failed", items: [] },
+      treatments: { kind: "failed", items: [] },
+    };
+    expect(fieldErrors({}, failed)).toEqual({
+      customerId: "선택할 수 있는 고객이 없어요.",
+      treatmentIds: treatmentMessages.unavailable,
+    });
+    const empty: ReservationChoices = {
+      ...choices,
+      customers: { kind: "empty", items: [] },
+      treatments: { kind: "empty", items: [] },
+    };
+    expect(fieldErrors({ customerId: "", treatmentIds: [] }, empty)).toEqual({
+      customerId: "선택할 수 있는 고객이 없어요.",
+      treatmentIds: treatmentMessages.unavailable,
     });
   });
 
-  it("종료 일시를 달력에 나타낼 수 없으면 날짜 오류로 알린다", () => {
-    const huge = {
+  it("소요시간이 올바르지 않은 시술이 섞이면 예약하지 않는다", () => {
+    const broken: ReservationChoices = {
+      ...choices,
+      treatments: { kind: "ready", items: [{ ...gel, duration: 0 }, art] },
+    };
+    expect(fieldErrors({ treatmentIds: ["1", "2"] }, broken)).toEqual({
+      treatmentIds: treatmentMessages.badDuration,
+    });
+  });
+
+  it("시술 시간을 더해 종료 일시를 계산할 수 없으면 시술 칸 오류로 알린다", () => {
+    const huge = Math.floor(Number.MAX_SAFE_INTEGER / 2) + 1;
+    const overflow: ReservationChoices = {
       ...choices,
       treatments: {
-        status: "ready" as const,
-        items: [{ ...gel, duration: Number.MAX_SAFE_INTEGER }],
+        kind: "ready",
+        items: [
+          { ...gel, duration: huge },
+          { ...art, duration: huge },
+        ],
       },
     };
-    expect(fieldErrors({}, huge)).toEqual({ date: "종료 일시를 계산할 수 없는 날짜예요." });
+    expect(fieldErrors({ treatmentIds: ["1", "2"] }, overflow)).toEqual({
+      treatmentIds: treatmentMessages.outOfRange,
+    });
+    expect(previewSchedule({ ...values, treatmentIds: ["1", "2"] }, overflow).outOfRange).toBe(
+      true,
+    );
+
+    const far: ReservationChoices = {
+      ...choices,
+      treatments: { kind: "ready", items: [{ ...gel, duration: Number.MAX_SAFE_INTEGER }] },
+    };
+    expect(fieldErrors({}, far)).toEqual({ treatmentIds: treatmentMessages.outOfRange });
   });
 
-  it("수정할 때 같은 시술이면 저장된 소요시간을 유지하고 다른 시술이면 새 시술로 다시 계산한다", () => {
-    // 이후 시술 목록의 소요시간이 90분으로 바뀌었어도 예약에 저장된 60분을 유지한다
-    const changedList = {
+  it("수정할 때 기존 시술은 해제했다 다시 체크해도 예약 당시 값으로 계산한다", () => {
+    const editing: ReservationChoices = {
       ...choices,
-      treatments: { status: "ready" as const, items: [{ ...gel, duration: 90 }, art] },
-      keptTreatment: { id: 1, name: "예전 이름", duration: 60 },
+      // 이후 시술 목록의 이름·소요시간이 바뀌었다
+      keptTreatments: [{ id: 1, name: "예전 이름", duration: 45 }],
     };
-    const kept = input({ startTime: "14:00" }, changedList);
-    expect(kept.treatment).toEqual({ id: 1, name: "예전 이름", duration: 60 });
-    expect(kept.endAt - kept.startAt).toBe(60 * 60_000);
+    const preview = previewSchedule({ ...values, treatmentIds: ["2", "1"] }, editing);
 
-    const switched = input({ treatmentId: "2", startTime: "14:00" }, changedList);
-    expect(switched.treatment).toEqual(art);
-    expect(switched.endAt - switched.startAt).toBe(90 * 60_000);
+    expect(preview.rows).toEqual([
+      { id: 1, name: "예전 이름", duration: 45, kind: "kept_changed" },
+      { ...art, kind: "listed" },
+    ]);
+    expect(preview.totalMinutes).toBe(135);
+    expect(input({ treatmentIds: ["2", "1"] }, editing).treatmentIds).toEqual([1, 2]);
+  });
+
+  it("수정할 때 목록에 없는 기존 고객·시술도 그대로 두면 저장할 수 있다", () => {
+    const gone = { id: 9, name: "이전 고객", phone: "01000000000" };
+    const deleted = { id: 7, name: "단종 시술", duration: 20 };
+    const editing: ReservationChoices = {
+      customers: { kind: "loading", items: [] },
+      treatments: { kind: "loading", items: [] },
+      keptCustomer: gone,
+      keptTreatments: [deleted],
+      seenTreatments: [],
+    };
+
+    expect(input({ customerId: "9", treatmentIds: ["7"] }, editing)).toEqual({
+      customerId: 9,
+      treatmentIds: [7],
+      startAt: at(10),
+    });
+    // 기존 시술을 고를 수 있으니 0개 체크는 목록 상태와 관계없이 '1개 이상' 안내다
+    expect(fieldErrors({ customerId: "9", treatmentIds: [] }, editing)).toEqual({
+      treatmentIds: treatmentMessages.none,
+    });
+  });
+
+  it("체크 목록은 사라진 시술, 삭제된 기존 시술, 시술 목록 순서로 보인다", () => {
+    const deleted = { id: 7, name: "단종 시술", duration: 20 };
+    const editing: ReservationChoices = {
+      ...choices,
+      treatments: { kind: "ready", items: [gel, art] },
+      keptTreatments: [deleted, gel],
+      // 이번 시트에서 체크했는데 다시 불러온 목록에서 빠진 시술
+      seenTreatments: [{ id: 8, name: "사라진 시술", duration: 15 }],
+    };
+
+    expect(treatmentRows(["8", "7", "1", "5"], editing)).toEqual([
+      { id: 8, name: "사라진 시술", duration: 15, kind: "vanished" },
+      { id: 5, name: null, duration: null, kind: "vanished" },
+      { ...deleted, kind: "deleted" },
+      { ...gel, kind: "kept" },
+      { ...art, kind: "listed" },
+    ]);
+    // 시술 목록을 모르면 기존 예약 시술만 보인다
+    expect(treatmentRows(["1"], { ...editing, treatments: { kind: "failed", items: [] } })).toEqual(
+      [
+        { ...deleted, kind: "kept" },
+        { ...gel, kind: "kept" },
+      ],
+    );
+  });
+
+  it("서버가 확정한 거부는 해당 칸 오류로, 칸을 모르면 시트 알림으로 보낸다", () => {
+    expect(rejectionErrors("customer_not_found")).toEqual({
+      customerId: "더 이상 없는 고객이에요. 목록을 새로 불러왔으니 다시 선택해주세요.",
+    });
+    expect(rejectionErrors("treatment_not_found")).toEqual({
+      treatmentIds: treatmentMessages.notFound,
+    });
+    expect(rejectionErrors("schedule_out_of_range")).toEqual({
+      treatmentIds: treatmentMessages.outOfRange,
+    });
+    expect(rejectionErrors("invalid_treatments")).toEqual({
+      treatmentIds: treatmentMessages.invalid,
+    });
+    expect(rejectionErrors("invalid")).toBeNull();
   });
 
   it("취소 사유는 앞뒤 공백을 지우고 비면 사유 없음이다", () => {
@@ -358,56 +507,28 @@ describe("예약 입력 확인", () => {
 });
 
 describe("날짜별 예약 조회", () => {
-  it("처음에는 빈 목록이고 그 날짜에 시작하는 예약만 시작 시각순으로 보여준다", async () => {
-    mockOf(client);
-    const list = openList(day("2026-10-22"));
-    await list.settled();
-    expect(list.rows()).toEqual([]);
+  it("날짜와 취소 포함 여부를 쿼리 문자열로 보내고 서버 순서 그대로 보여준다", async () => {
+    const early = reservation({ id: 101, startAt: at(9, 30) });
+    const late = reservation({ id: 102, startAt: at(15), customer: seoSameName });
+    const cancelled = reservation({ id: 103, cancelledAt: at(8), cancelReason: null });
+    serve((request) =>
+      request === listOf("2026-10-22", true) ? json([early, cancelled, late]) : json([early, late]),
+    );
+    const basic = openList(day("2026-10-22"));
+    const withCancelled = openList(day("2026-10-22", true));
 
-    await register({ startTime: "15:00", customerId: "2" });
-    await register({ startTime: "09:30" });
-    await register({ date: "2026-10-23", startTime: "08:00" });
-    await register({ date: "2026-10-21", startTime: "20:00" });
-    await list.settled();
-
-    expect(times(list.rows())).toEqual(["09:30 김서연", "15:00 김서연"]);
-  });
-
-  it("한국 시간 자정 전후 예약은 각자의 날짜에 들어가고 자정을 넘겨 끝나도 시작 날짜에만 보인다", async () => {
-    mockOf(client);
-    await register({ date: "2026-10-22", startTime: "23:59", treatmentId: "2" });
-    await register({ date: "2026-10-23", startTime: "00:00" });
-    const first = openList(day("2026-10-22"));
-    const second = openList(day("2026-10-23"));
-    await first.settled();
-    await second.settled();
-
-    expect(times(first.rows())).toEqual(["23:59 김서연"]);
-    expect(times(second.rows())).toEqual(["00:00 김서연"]);
-  });
-
-  it("시작 시각이 같으면 먼저 등록한 예약이 앞에 온다", async () => {
-    mockOf(client);
-    await register({ customerId: "2" });
-    await register({ customerId: "1" });
-    const list = openList(day("2026-10-22"));
-    await list.settled();
-
-    expect(list.rows()?.map((row) => row.customer.id)).toEqual([2, 1]);
-  });
-
-  it("겹치는 시간의 예약도 막지 않고 둘 다 저장한다", async () => {
-    mockOf(client);
-    expect((await register({ startTime: "10:00" })).kind).toBe("created");
-    expect((await register({ startTime: "10:30", customerId: "2" })).kind).toBe("created");
-    const list = openList(day("2026-10-22"));
-    await list.settled();
-
-    expect(list.rows()).toHaveLength(2);
+    expect(basic.screen()).toEqual({ kind: "loading" });
+    await basic.settled();
+    await withCancelled.settled();
+    expect(times(basic.rows())).toEqual(["09:30 김서연", "15:00 김서연"]);
+    expect(withCancelled.rows()?.map((row) => row.id)).toEqual([101, 103, 102]);
+    expect(requests().toSorted()).toEqual([listOf("2026-10-22"), listOf("2026-10-22", true)]);
   });
 
   it("조회 실패 뒤 다시 시도하면 실패 표시를 둔 채 다시 시도 중을 거쳐 목록이 나온다", async () => {
-    mockOf(client).failNext.list = 1;
+    fetchMock
+      .mockImplementationOnce(async () => json({}, 500))
+      .mockImplementation(async () => json([]));
     const list = openList(day("2026-10-22"));
     await list.settled();
     expect(list.screen()).toEqual({ kind: "failed", retrying: false });
@@ -424,101 +545,166 @@ describe("날짜별 예약 조회", () => {
   });
 
   it("다시 불러오기가 실패해도 보이던 예약을 지우거나 0건으로 바꾸지 않는다", async () => {
-    const mock = mockOf(client);
-    await register();
+    fetchMock
+      .mockImplementationOnce(async () => json([reservation()]))
+      .mockImplementationOnce(async () => unreachable());
     const list = openList(day("2026-10-22"));
     await list.settled();
 
-    mock.failNext.list = 1;
     await list.reload();
     const screen = list.screen();
     expect(screen.kind === "loaded" && screen.refreshFailed).toBe(true);
     expect(list.rows()).toHaveLength(1);
   });
 
+  it("응답이 계약과 다르면(시술 없음) 목록으로 쓰지 않고 실패로 보여준다", async () => {
+    serve(async () => json([{ ...reservation(), treatments: [] }]));
+    const list = openList(day("2026-10-22"));
+
+    await list.settled();
+    expect(list.screen()).toEqual({ kind: "failed", retrying: false });
+  });
+
   it("다른 날짜로 바꾸면 새 날짜 결과가 올 때까지 이전 날짜의 예약을 보여주지 않는다", async () => {
-    mockOf(client);
-    await register({ date: "2026-10-22" });
+    let releaseNext!: () => void;
+    const nextHeld = new Promise<void>((resolve) => (releaseNext = resolve));
+    serve(async (request) => {
+      if (request === listOf("2026-10-22")) return json([reservation()]);
+      await nextHeld;
+      return json([]);
+    });
     const first = openList(day("2026-10-22"));
     await first.settled();
     expect(first.rows()).toHaveLength(1);
 
-    // 날짜가 바뀌면 다른 query다. 캐시가 없으면 이전 날짜의 행이 아니라 불러오는 중이다
-    first.leave();
-    client.removeQueries({ queryKey: reservationQueries.lists() });
     const next = openList(day("2026-10-23"));
     expect(next.screen()).toEqual({ kind: "loading" });
+    releaseNext();
     await next.settled();
     expect(next.rows()).toEqual([]);
-  });
-
-  it("목록을 떠났다 다시 열어도 등록한 예약이 남아 있다", async () => {
-    mockOf(client);
-    const first = openList(day("2026-10-22"));
-    await first.settled();
-    await register();
-    first.leave();
-    client.removeQueries({ queryKey: reservationQueries.all() });
-
-    const again = openList(day("2026-10-22"));
-    await again.settled();
-    expect(times(again.rows())).toEqual(["10:00 김서연"]);
-  });
-
-  it("다른 앱(새로고침·다른 테스트)의 가상 저장소와 공유하지 않는다", async () => {
-    mockOf(client);
-    await register();
-
-    const other = newClient();
-    reservationMock(other).delayMs = 0;
-    const list = openList(day("2026-10-22"), other);
-    await list.settled();
-    expect(list.rows()).toEqual([]);
-    other.clear();
   });
 });
 
 describe("예약 등록", () => {
-  it("계산된 종료 일시와 고객·시술 정보를 가진 예약이 정확히 한 건 생긴다", async () => {
-    const mock = mockOf(client);
-    const result = await register({ treatmentId: "2", startTime: "10:00" });
-
-    expect(result.kind).toBe("created");
-    expect(mock.rows).toHaveLength(1);
-    expect(mock.rows[0]).toMatchObject({
-      id: 100,
-      customer: seo,
-      treatment: art,
-      startAt: Date.UTC(2026, 9, 22, 1, 0),
-      endAt: Date.UTC(2026, 9, 22, 2, 30),
-      cancelledAt: null,
-      cancelReason: null,
+  it("고른 값을 보내고 서버가 준 예약을 그 날짜 목록에 시간순으로 한 번 넣는다", async () => {
+    const existing = reservation({ id: 90, startAt: at(15) });
+    const created = reservation({ treatments: [gel, care] });
+    let saved = false;
+    serve((request) => {
+      if (request === "POST /reservations") {
+        saved = true;
+        return json(created, 201);
+      }
+      if (request === listOf("2026-10-22")) return json(saved ? [created, existing] : [existing]);
+      return json([]);
     });
+    const list = openList(day("2026-10-22"));
+    const other = openList(day("2026-10-23"));
+    await list.settled();
+    await other.settled();
+
+    const result = await register({ treatmentIds: ["3", "1"] });
+
+    expect(result).toEqual({ kind: "created", reservation: created });
+    expect(sentBody("POST /reservations")).toEqual({
+      customerId: 1,
+      treatmentIds: [1, 3],
+      startAt: at(10),
+    });
+    await list.settled();
+    expect(times(list.rows())).toEqual(["10:00 김서연", "15:00 김서연"]);
+    expect(other.rows()).toEqual([]);
+    expect(requests().filter((request) => request.startsWith("POST"))).toHaveLength(1);
   });
 
-  it("저장에 실패하면 실패로 알리고 목록·저장소에 넣지 않는다", async () => {
-    const mock = mockOf(client);
-    mock.failNext.create = 1;
+  it("등록 뒤 목록 재조회가 실패해도 확인한 새 예약은 목록에 남는다", async () => {
+    const existing = reservation({ id: 90, startAt: at(15) });
+    fetchMock
+      .mockImplementationOnce(async () => json([existing]))
+      .mockImplementationOnce(async () => json(reservation(), 201))
+      .mockImplementationOnce(async () => json({}, 500));
     const list = openList(day("2026-10-22"));
     await list.settled();
 
-    expect(await register()).toEqual({ kind: "failed" });
-    expect(list.rows()).toEqual([]);
-    expect(mock.rows).toEqual([]);
+    expect((await register()).kind).toBe("created");
+    await list.settled();
+    expect(times(list.rows())).toEqual(["10:00 김서연", "15:00 김서연"]);
+    const screen = list.screen();
+    expect(screen.kind === "loaded" && screen.refreshFailed).toBe(true);
   });
 
-  it("실패한 입력 그대로 다시 저장하면 한 번만 들어간다", async () => {
-    const mock = mockOf(client);
-    mock.failNext.create = 1;
+  it("없는 고객이라고 거부하면(422) 사유를 돌려주고 고객 목록을 다시 불러오게 한다", async () => {
+    client.setQueryData(customerQueries.list().queryKey, []);
+    serve(async () => defined("UNPROCESSABLE_CONTENT", 422, { reason: "customer_not_found" }));
 
-    expect(await register()).toEqual({ kind: "failed" });
-    expect(await register()).toMatchObject({ kind: "created" });
-    expect(mock.rows).toHaveLength(1);
-    expect(mock.calls.create).toBe(2);
+    expect(await register()).toEqual({ kind: "rejected", reason: "customer_not_found" });
+    expect(client.getQueryState(customerQueries.list().queryKey)?.isInvalidated).toBe(true);
+    expect(requests()).toEqual(["POST /reservations"]);
   });
+
+  it("없는 시술이라고 거부하면(422) 사유를 돌려주고 시술 목록을 다시 불러오게 한다", async () => {
+    client.setQueryData(treatmentQueries.list().queryKey, []);
+    serve(async () =>
+      defined("UNPROCESSABLE_CONTENT", 422, { reason: "treatment_not_found", treatmentIds: [3] }),
+    );
+
+    expect(await register()).toEqual({ kind: "rejected", reason: "treatment_not_found" });
+    expect(client.getQueryState(treatmentQueries.list().queryKey)?.isInvalidated).toBe(true);
+  });
+
+  it("종료 일시를 계산할 수 없다고 거부하면(422) 그 사유를 돌려준다", async () => {
+    serve(async () => defined("UNPROCESSABLE_CONTENT", 422, { reason: "schedule_out_of_range" }));
+
+    expect(await register()).toEqual({ kind: "rejected", reason: "schedule_out_of_range" });
+  });
+
+  it("입력 형식 거부(400)는 시술 칸 문제인지 아닌지만 나눈다", async () => {
+    serve(async () => invalidInput([{ path: ["treatmentIds"], message: "같은 시술을 두 번" }]));
+    expect(await register()).toEqual({ kind: "rejected", reason: "invalid_treatments" });
+
+    serve(async () => invalidInput([{ path: ["startAt"], message: "분 단위" }]));
+    expect(await register()).toEqual({ kind: "rejected", reason: "invalid" });
+  });
+
+  it.each([
+    { situation: "서버 오류(500)", respond: async () => json({}, 500) },
+    { situation: "서버에 닿지 않음", respond: async () => unreachable() },
+    { situation: "응답이 계약과 다름", respond: async () => json({ id: 100 }, 201) },
+    {
+      situation: "거부 사유가 계약과 다름",
+      respond: async () => defined("UNPROCESSABLE_CONTENT", 422, { reason: "unknown_reason" }),
+    },
+  ])(
+    "결과를 알 수 없으면($situation) 다시 보내지 않고 목록만 다시 불러온다",
+    async ({ respond }) => {
+      fetchMock
+        .mockImplementationOnce(async () => json([]))
+        .mockImplementationOnce(respond)
+        .mockImplementationOnce(async () => json([reservation()]));
+      const list = openList(day("2026-10-22"));
+      await list.settled();
+
+      expect(await register()).toEqual({ kind: "unknown" });
+      await vi.waitFor(() =>
+        expect(requests()).toEqual([
+          listOf("2026-10-22"),
+          "POST /reservations",
+          listOf("2026-10-22"),
+        ]),
+      );
+      await list.settled();
+      // 서버에 저장돼 있었다면 다시 불러온 목록에 나타난다
+      expect(times(list.rows())).toEqual(["10:00 김서연"]);
+    },
+  );
 
   it("저장하는 동안 예약 mutation 키로 저장 중을 알 수 있고 시술·고객 키와 섞이지 않는다", async () => {
-    mockOf(client).delayMs = 20;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    fetchMock.mockImplementationOnce(async () => {
+      await held;
+      return json(reservation(), 201);
+    });
     const saving = client.getMutationCache().build(client, {
       mutationKey: reservationMutationKeys.create(),
       mutationFn: () => register(),
@@ -528,320 +714,304 @@ describe("예약 등록", () => {
     expect(client.isMutating({ mutationKey: reservationMutationKeys.all() })).toBe(1);
     expect(client.isMutating({ mutationKey: ["treatments"] })).toBe(0);
     expect(client.isMutating({ mutationKey: ["customers"] })).toBe(0);
+    release();
     await done;
     expect(client.isMutating({ mutationKey: reservationMutationKeys.all() })).toBe(0);
   });
 
   it("저장하는 사이 늦게 도착한 이전 조회 응답이 새 예약을 지우지 못한다", async () => {
-    const mock = mockOf(client);
-    // 첫 조회만 늦게 응답
-    mock.delayMs = 50;
+    let releaseOldList!: () => void;
+    const oldListHeld = new Promise<void>((resolve) => (releaseOldList = resolve));
+    fetchMock
+      .mockImplementationOnce(async () => {
+        await oldListHeld;
+        return json([]);
+      })
+      .mockImplementationOnce(async () => json(reservation(), 201))
+      .mockImplementation(async () => json([reservation()]));
     const list = openList(day("2026-10-22"));
-    mock.delayMs = 0;
+    await vi.waitFor(() => expect(requests()).toEqual([listOf("2026-10-22")]));
 
-    const result = await register();
-    expect(result.kind).toBe("created");
+    await register();
+    releaseOldList();
     await list.settled();
-    await vi.waitFor(() => expect(mock.calls.list).toBeGreaterThanOrEqual(2));
-    await new Promise((resolve) => setTimeout(resolve, 80));
-
     expect(times(list.rows())).toEqual(["10:00 김서연"]);
-  });
-
-  it("등록한 날짜가 아닌 날짜의 목록은 그대로 둔다", async () => {
-    mockOf(client);
-    const other = openList(day("2026-10-23"));
-    await other.settled();
-    await register({ date: "2026-10-22" });
-    await other.settled();
-
-    expect(other.rows()).toEqual([]);
   });
 });
 
 describe("예약 수정", () => {
-  async function created(overrides: Partial<ReservationFormValues> = {}) {
-    const result = await register(overrides);
-    if (result.kind !== "created") throw new Error("등록에 실패했어요");
-    return result.reservation;
-  }
-
-  it("같은 예약을 갱신하고 시간·종료 일시가 규칙대로 바뀐다", async () => {
-    const mock = mockOf(client);
-    const original = await created();
+  it("같은 예약을 PUT으로 갱신하고 서버가 준 예약으로 목록을 바꾼다", async () => {
+    const original = reservation();
+    const updated = reservation({ customer: seoSameName, treatments: [art], startAt: at(13) });
+    let changed = false;
+    serve((request) => {
+      if (request === "PUT /reservations/100") {
+        changed = true;
+        return json(updated);
+      }
+      return json([changed ? updated : original]);
+    });
     const list = openList(day("2026-10-22"));
     await list.settled();
 
     const result = await updateReservation(
       client,
-      original.id,
-      input({ customerId: "2", treatmentId: "2", startTime: "13:00" }),
+      100,
+      input({ customerId: "2", treatmentIds: ["2"], startTime: "13:00" }),
     );
 
-    expect(result.kind).toBe("updated");
-    expect(mock.rows).toHaveLength(1);
-    expect(mock.rows[0]).toMatchObject({
-      id: original.id,
-      customer: seoSameName,
-      treatment: art,
-      startAt: Date.UTC(2026, 9, 22, 4, 0),
-      endAt: Date.UTC(2026, 9, 22, 5, 30),
+    expect(result).toEqual({ kind: "updated", reservation: updated });
+    expect(sentBody("PUT /reservations/100")).toEqual({
+      customerId: 2,
+      treatmentIds: [2],
+      startAt: at(13),
     });
     await list.settled();
-    expect(times(list.rows())).toEqual(["13:00 김서연"]);
+    expect(list.rows()).toEqual([updated]);
   });
 
-  it("날짜를 옮기면 기존 날짜 목록에서 빠지고 바뀐 날짜 목록에 시간순으로 나온다", async () => {
-    mockOf(client);
-    const original = await created({ date: "2026-10-22" });
-    await created({ date: "2026-10-23", startTime: "12:00", customerId: "2" });
+  it("날짜를 옮기면 재조회가 실패해도 기존 날짜에서 빠지고 바뀐 날짜에 시간순으로 들어간다", async () => {
+    const original = reservation();
+    const other = reservation({ id: 101, startAt: at(12, 0, 23), customer: seoSameName });
+    const moved = reservation({ startAt: at(9, 0, 23) });
+    let saved = false;
+    serve((request) => {
+      if (request === "PUT /reservations/100") {
+        saved = true;
+        return json(moved);
+      }
+      if (saved) return json({}, 500);
+      return json(request === listOf("2026-10-22") ? [original] : [other]);
+    });
     const oldDay = openList(day("2026-10-22"));
     const newDay = openList(day("2026-10-23"));
     await oldDay.settled();
     await newDay.settled();
 
-    await updateReservation(client, original.id, input({ date: "2026-10-23", startTime: "09:00" }));
+    await updateReservation(client, 100, input({ date: "2026-10-23", startTime: "09:00" }));
     await oldDay.settled();
     await newDay.settled();
 
     expect(oldDay.rows()).toEqual([]);
-    expect(times(newDay.rows())).toEqual(["09:00 김서연", "12:00 김서연"]);
+    expect(newDay.rows()?.map((row) => row.id)).toEqual([100, 101]);
   });
 
-  it("시술 목록을 다시 불러와도 예약에 저장된 시술명·소요시간·시간은 바뀌지 않는다", async () => {
-    const mock = mockOf(client);
-    const original = await created();
-
-    // 이후 시술 정보가 바뀐 것처럼 만든다
-    const renamedChoices: ReservationChoices = {
-      ...choices,
-      treatments: { status: "ready", items: [{ id: 1, name: "새 이름", duration: 120 }, art] },
-    };
-    expect(reservationInputSchema(renamedChoices).parse(values).endAt).not.toBe(original.endAt);
-    expect(mock.rows[0]?.treatment).toEqual(gel);
-    expect(mock.rows[0]?.endAt).toBe(original.endAt);
-
-    const list = openList(day("2026-10-22"));
-    await list.settled();
-    await list.reload();
-    expect(list.rows()?.[0]?.treatment).toEqual(gel);
-    expect(list.rows()?.[0]?.endAt).toBe(original.endAt);
-  });
-
-  it("수정에 실패하면 원래 예약을 유지한다", async () => {
-    const mock = mockOf(client);
-    const original = await created();
-    mock.failNext.update = 1;
-    const list = openList(day("2026-10-22"));
-    await list.settled();
-
-    expect(await updateReservation(client, original.id, input({ startTime: "15:00" }))).toEqual({
-      kind: "failed",
+  it("이미 없는 예약이면(404) 덮어쓰지 않고 목록에서 내린다", async () => {
+    let gone = false;
+    serve((request) => {
+      if (request === "PUT /reservations/100") {
+        gone = true;
+        return defined("NOT_FOUND", 404);
+      }
+      return json(gone ? [] : [reservation()]);
     });
-    expect(mock.rows[0]).toEqual(original);
-    expect(times(list.rows())).toEqual(["10:00 김서연"]);
-  });
-
-  it("이미 없는 예약은 덮어쓰지 않고 목록에서 내린다", async () => {
-    const mock = mockOf(client);
-    const original = await created();
     const list = openList(day("2026-10-22"));
     await list.settled();
-    mock.rows = [];
 
-    expect(await updateReservation(client, original.id, input({ startTime: "15:00" }))).toEqual({
+    expect(await updateReservation(client, 100, input({ startTime: "15:00" }))).toEqual({
       kind: "not_found",
       refreshed: true,
     });
-    expect(mock.rows).toEqual([]);
-    await list.settled();
     expect(list.rows()).toEqual([]);
   });
 
-  it("이미 취소된 걸 확인했으면 목록 재조회가 실패해도 활성 행을 지우고 재조회 실패는 따로 알린다", async () => {
-    const mock = mockOf(client);
-    const original = await created();
+  it("이미 취소됐으면(409) 서버가 확인한 취소 기록을 반영하고 재조회 실패는 따로 알린다", async () => {
+    const original = reservation();
+    const cancelled = reservation({ cancelledAt: at(8), cancelReason: "최초 사유" });
+    let conflicted = false;
+    serve((request) => {
+      if (request === "PUT /reservations/100") {
+        conflicted = true;
+        return defined("CONFLICT", 409, { reservation: cancelled });
+      }
+      return conflicted ? json({}, 500) : json([original]);
+    });
     const basic = openList(day("2026-10-22"));
     const withCancelled = openList(day("2026-10-22", true));
     await basic.settled();
     await withCancelled.settled();
-    // 다른 곳에서 먼저 취소됨. 오래된 목록은 아직 활성으로 알고 있다
-    mock.rows[0] = { ...original, cancelledAt: 1_000, cancelReason: "최초 사유" };
-    mock.failNext.list = 2;
 
-    const result = await updateReservation(client, original.id, input({ startTime: "15:00" }));
+    const result = await updateReservation(client, 100, input({ startTime: "15:00" }));
 
-    expect(result).toEqual({ kind: "cancelled", refreshed: false });
+    expect(result).toEqual({ kind: "cancelled", reservation: cancelled, refreshed: false });
     expect(basic.rows()).toEqual([]);
-    expect(withCancelled.rows()?.map((row) => row.cancelledAt)).toEqual([1_000]);
+    expect(withCancelled.rows()).toEqual([cancelled]);
     const screen = basic.screen();
     expect(screen.kind === "loaded" && screen.refreshFailed).toBe(true);
-    expect(mock.rows[0]?.cancelReason).toBe("최초 사유");
   });
 
-  it("이미 취소된 예약은 수정하지 않는다", async () => {
-    const mock = mockOf(client);
-    const original = await created();
-    await cancelReservation(client, original.id, { reason: "고객 요청" });
+  it("거부되면(422) 사유를 돌려주고 목록은 다시 불러오지 않는다", async () => {
+    fetchMock
+      .mockImplementationOnce(async () => json([reservation()]))
+      .mockImplementationOnce(async () =>
+        defined("UNPROCESSABLE_CONTENT", 422, { reason: "schedule_out_of_range" }),
+      );
+    const list = openList(day("2026-10-22"));
+    await list.settled();
 
-    expect(await updateReservation(client, original.id, input({ startTime: "15:00" }))).toEqual({
-      kind: "cancelled",
-      refreshed: true,
+    expect(await updateReservation(client, 100, input())).toEqual({
+      kind: "rejected",
+      reason: "schedule_out_of_range",
     });
-    expect(mock.rows[0]?.startAt).toBe(original.startAt);
-    expect(mock.rows[0]?.cancelReason).toBe("고객 요청");
+    expect(requests()).toEqual([listOf("2026-10-22"), "PUT /reservations/100"]);
+    expect(list.rows()).toEqual([reservation()]);
+  });
+
+  it("결과를 알 수 없으면 원래 행을 지우지 않고 다시 보내지 않으며 목록만 다시 불러온다", async () => {
+    fetchMock
+      .mockImplementationOnce(async () => json([reservation()]))
+      .mockImplementationOnce(async () => unreachable())
+      .mockImplementationOnce(async () => json([reservation()]));
+    const list = openList(day("2026-10-22"));
+    await list.settled();
+
+    expect(await updateReservation(client, 100, input({ startTime: "15:00" }))).toEqual({
+      kind: "unknown",
+    });
+    await vi.waitFor(() =>
+      expect(requests()).toEqual([
+        listOf("2026-10-22"),
+        "PUT /reservations/100",
+        listOf("2026-10-22"),
+      ]),
+    );
+    await list.settled();
+    expect(list.rows()).toEqual([reservation()]);
   });
 });
 
 describe("예약 취소", () => {
-  async function created() {
-    const result = await register();
-    if (result.kind !== "created") throw new Error("등록에 실패했어요");
-    return result.reservation;
-  }
-
-  it("원래 내용을 보존하고 취소 시각·사유를 기록하며 기본 목록에서 뺀다", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-22T05:03:00Z"));
-    const mock = mockOf(client);
-    const original = await created();
+  it("사유를 보내고 기본 목록에서 빼며 취소 포함 목록에는 서버가 기록한 취소로 남긴다", async () => {
+    const original = reservation();
+    const cancelled = reservation({
+      cancelledAt: Date.parse("2026-10-22T05:03:00Z"),
+      cancelReason: "고객 요청",
+    });
+    let done = false;
+    serve((request) => {
+      if (request === "POST /reservations/100/cancel") {
+        done = true;
+        return json(cancelled);
+      }
+      if (request === listOf("2026-10-22", true)) return json([done ? cancelled : original]);
+      return json(done ? [] : [original]);
+    });
     const basic = openList(day("2026-10-22"));
     const withCancelled = openList(day("2026-10-22", true));
     await basic.settled();
     await withCancelled.settled();
 
-    const result = await cancelReservation(client, original.id, { reason: "고객 요청" });
+    const result = await cancelReservation(client, 100, { reason: "고객 요청" });
 
-    expect(result.kind).toBe("cancelled");
-    expect(mock.rows).toHaveLength(1);
-    // 가짜 시계가 조회 지연 동안 조금 흐를 수 있어 취소 시각은 범위로 확인한다
-    const cancelledAt = mock.rows[0]?.cancelledAt ?? 0;
-    expect(cancelledAt).toBeGreaterThanOrEqual(Date.parse("2026-10-22T05:03:00Z"));
-    expect(cancelledAt).toBeLessThan(Date.parse("2026-10-22T05:03:01Z"));
-    expect(mock.rows[0]).toEqual({ ...original, cancelledAt, cancelReason: "고객 요청" });
-    await basic.settled();
-    await withCancelled.settled();
+    expect(result).toEqual({ kind: "cancelled", reservation: cancelled });
+    expect(sentBody("POST /reservations/100/cancel")).toEqual({ reason: "고객 요청" });
     expect(basic.rows()).toEqual([]);
-    expect(withCancelled.rows()).toHaveLength(1);
+    expect(withCancelled.rows()).toEqual([cancelled]);
     expect(formatMoment(withCancelled.rows()?.[0]?.cancelledAt ?? 0)).toBe("10월 22일 14:03");
   });
 
-  it("사유 없이도 취소하고 물리 삭제하지 않는다", async () => {
-    const mock = mockOf(client);
-    const original = await created();
+  it("사유가 없으면 null을 보낸다", async () => {
+    serve(async (request) =>
+      request.startsWith("POST") ? json(reservation({ cancelledAt: at(14) })) : json([]),
+    );
 
-    await cancelReservation(client, original.id, { reason: null });
-
-    expect(mock.rows).toHaveLength(1);
-    expect(mock.rows[0]?.cancelReason).toBeNull();
-    expect(mock.rows[0]?.cancelledAt).not.toBeNull();
+    await cancelReservation(client, 100, { reason: null });
+    expect(sentBody("POST /reservations/100/cancel")).toEqual({ reason: null });
   });
 
-  it("취소에 실패하면 기존 예약을 유지한다", async () => {
-    const mock = mockOf(client);
-    const original = await created();
-    mock.failNext.cancel = 1;
-    const list = openList(day("2026-10-22"));
-    await list.settled();
-
-    expect(await cancelReservation(client, original.id, { reason: null })).toEqual({
-      kind: "failed",
+  it("이미 취소됐으면(409) 재조회가 실패해도 처음 취소 기록으로 반영한다", async () => {
+    const original = reservation();
+    const first = reservation({ cancelledAt: at(8), cancelReason: "최초 사유" });
+    let conflicted = false;
+    serve((request) => {
+      if (request === "POST /reservations/100/cancel") {
+        conflicted = true;
+        return defined("CONFLICT", 409, { reservation: first });
+      }
+      return conflicted ? json({}, 500) : json([original]);
     });
-    expect(mock.rows[0]).toEqual(original);
-    expect(times(list.rows())).toEqual(["10:00 김서연"]);
-  });
-
-  it("다시 취소해도 최초 취소 기록을 덮어쓰지 않는다", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-22T05:03:00Z"));
-    const mock = mockOf(client);
-    const original = await created();
-    await cancelReservation(client, original.id, { reason: "처음 사유" });
-    const firstCancelledAt = mock.rows[0]?.cancelledAt;
-    vi.setSystemTime(new Date("2026-10-22T09:00:00Z"));
-
-    expect(await cancelReservation(client, original.id, { reason: "나중 사유" })).toEqual({
-      kind: "already_cancelled",
-      refreshed: true,
-    });
-    expect(mock.rows[0]?.cancelReason).toBe("처음 사유");
-    expect(mock.rows[0]?.cancelledAt).toBe(firstCancelledAt);
-  });
-
-  it("이미 취소된 걸 확인했으면 재조회가 실패해도 활성 행을 지우고 최초 기록을 유지한다", async () => {
-    const mock = mockOf(client);
-    const original = await created();
     const basic = openList(day("2026-10-22"));
     const withCancelled = openList(day("2026-10-22", true));
     await basic.settled();
     await withCancelled.settled();
-    mock.rows[0] = { ...original, cancelledAt: 1_000, cancelReason: "최초 사유" };
-    mock.failNext.list = 2;
 
-    const result = await cancelReservation(client, original.id, { reason: "두 번째 사유" });
+    const result = await cancelReservation(client, 100, { reason: "두 번째 사유" });
 
-    expect(result).toEqual({ kind: "already_cancelled", refreshed: false });
+    expect(result).toEqual({ kind: "already_cancelled", reservation: first, refreshed: false });
     expect(basic.rows()).toEqual([]);
-    expect(withCancelled.rows()).toMatchObject([{ cancelledAt: 1_000, cancelReason: "최초 사유" }]);
-    expect(mock.rows[0]).toMatchObject({ cancelledAt: 1_000, cancelReason: "최초 사유" });
+    expect(withCancelled.rows()).toEqual([first]);
   });
 
-  it("이미 없는 예약을 취소하면 없다고 알리고 목록에서 내린다", async () => {
-    const mock = mockOf(client);
-    const original = await created();
+  it("이미 없는 예약이면(404) 없다고 알리고 목록에서 내린다", async () => {
+    let gone = false;
+    serve((request) => {
+      if (request === "POST /reservations/100/cancel") {
+        gone = true;
+        return defined("NOT_FOUND", 404);
+      }
+      return json(gone ? [] : [reservation()]);
+    });
     const list = openList(day("2026-10-22"));
     await list.settled();
-    mock.rows = [];
 
-    expect(await cancelReservation(client, original.id, { reason: null })).toEqual({
+    expect(await cancelReservation(client, 100, { reason: null })).toEqual({
       kind: "not_found",
       refreshed: true,
     });
-    await list.settled();
     expect(list.rows()).toEqual([]);
   });
 
-  it("취소 포함 목록과 기본 목록에 오래된 데이터가 남지 않는다", async () => {
-    mockOf(client);
-    const first = await created();
-    await register({ startTime: "11:00", customerId: "2" });
-    const basic = openList(day("2026-10-22"));
-    const withCancelled = openList(day("2026-10-22", true));
-    await basic.settled();
-    await withCancelled.settled();
+  it("사유 형식을 거부하면(400) 거부로 알리고 목록은 그대로 둔다", async () => {
+    fetchMock
+      .mockImplementationOnce(async () => json([reservation()]))
+      .mockImplementationOnce(async () =>
+        invalidInput([{ path: ["reason"], message: "취소 사유는 200자 이하로 입력해주세요." }]),
+      );
+    const list = openList(day("2026-10-22"));
+    await list.settled();
 
-    await cancelReservation(client, first.id, { reason: null });
-    await basic.settled();
-    await withCancelled.settled();
+    expect(await cancelReservation(client, 100, { reason: "사유" })).toEqual({ kind: "rejected" });
+    expect(list.rows()).toEqual([reservation()]);
+    expect(requests()).toHaveLength(2);
+  });
 
-    expect(times(basic.rows())).toEqual(["11:00 김서연"]);
-    expect(withCancelled.rows()?.map((row) => row.cancelledAt !== null)).toEqual([true, false]);
+  it("결과를 알 수 없으면 다시 보내지 않고 목록만 다시 불러온다", async () => {
+    fetchMock
+      .mockImplementationOnce(async () => json([reservation()]))
+      .mockImplementationOnce(async () => json({}, 503))
+      .mockImplementationOnce(async () => json([]));
+    const list = openList(day("2026-10-22"));
+    await list.settled();
+
+    expect(await cancelReservation(client, 100, { reason: null })).toEqual({ kind: "unknown" });
+    await vi.waitFor(() =>
+      expect(requests()).toEqual([
+        listOf("2026-10-22"),
+        "POST /reservations/100/cancel",
+        listOf("2026-10-22"),
+      ]),
+    );
+    await list.settled();
+    // 서버에서 취소됐다면 다시 불러온 기본 목록에서 빠진다
+    expect(list.rows()).toEqual([]);
   });
 
   it("취소 전에 시작한 이전 조회가 늦게 도착해도 취소를 되돌리지 못한다", async () => {
-    const mock = mockOf(client);
-    const original = await created();
-    // 취소 전 상태를 늦게 돌려주는 조회
-    mock.delayMs = 50;
+    let releaseOldList!: () => void;
+    const oldListHeld = new Promise<void>((resolve) => (releaseOldList = resolve));
+    fetchMock
+      .mockImplementationOnce(async () => {
+        await oldListHeld;
+        return json([reservation()]);
+      })
+      .mockImplementationOnce(async () => json(reservation({ cancelledAt: at(14) })))
+      .mockImplementation(async () => json([]));
     const list = openList(day("2026-10-22"));
-    mock.delayMs = 0;
+    await vi.waitFor(() => expect(requests()).toEqual([listOf("2026-10-22")]));
 
-    await cancelReservation(client, original.id, { reason: null });
+    await cancelReservation(client, 100, { reason: null });
+    releaseOldList();
     await list.settled();
-    await new Promise((resolve) => setTimeout(resolve, 80));
-
     expect(list.rows()).toEqual([]);
-  });
-});
-
-describe("가상 저장소 호출 횟수", () => {
-  it("실제로 저장소에 닿은 등록·수정·취소 횟수를 센다", async () => {
-    const mock = mockOf(client);
-    const result = await register();
-    if (result.kind !== "created") throw new Error("등록에 실패했어요");
-    await updateReservation(client, result.reservation.id, input({ startTime: "11:00" }));
-    await cancelReservation(client, result.reservation.id, { reason: null });
-
-    expect(mock.calls).toMatchObject({ create: 1, update: 1, cancel: 1 });
   });
 });

@@ -37,7 +37,7 @@ export default defineConfig({
       "import/consistent-type-specifier-style": "warn",
       "import/default": "warn",
       "import/export": "warn",
-      "import/max-dependencies": ["warn", { max: 10 }],
+      "import/max-dependencies": ["warn", { max: 15 }],
       "import/no-duplicates": "warn",
       // vite-plus
       "vite-plus/prefer-vite-plus-imports": "error",

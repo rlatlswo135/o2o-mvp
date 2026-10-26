@@ -13,7 +13,7 @@ const TOKENS = {
   low: ['#7AC7FF', 117], mid: ['#F5D76E', 221], high: ['#FF5F87', 204],
   fire0: [FIRE[0], 88], fire1: [FIRE[1], 160], fire2: [FIRE[2], 202], fire3: [FIRE[3], 214], fire4: [FIRE[4], 221], fire5: [FIRE[5], 230],
   ok0: ['#1E6B3F', 29], ok1: ['#2FB36A', 35], ok2: ['#6EE7A0', 84], ok3: ['#D2FFE2', 194], okBg: ['#1F9D55', 29],
-  planner: [ROLE_COLOR.planner, 215], executor: [ROLE_COLOR.executor, 117], reviewer: [ROLE_COLOR.reviewer, 150], designer: [ROLE_COLOR.designer, 211], qa: [ROLE_COLOR.qa, 141],
+  planner: [ROLE_COLOR.planner, 215], executor: [ROLE_COLOR.executor, 117], reviewer: [ROLE_COLOR.reviewer, 150], designer: [ROLE_COLOR.designer, 211], qa: [ROLE_COLOR.qa, 141], refactor: [ROLE_COLOR.refactor, 155],
 };
 const HEX = Object.fromEntries(Object.entries(TOKENS).map(([name, [hex]]) => [name, hex])), FG = '#E6E1E8';
 const STALE = 6 * 3600000, CARD = 76;
@@ -369,7 +369,7 @@ export function renderConsole(state, width = 80, height = 24, { color = null, no
   // Animation runs on the clock, not on draw count: classic effects step every 300ms, pixel props every 100ms.
   const t = now / 1000, frame = Math.floor(now / 300), tick = Math.floor(now / 100);
   const pixel = Boolean(color);
-  const cardWidth = Math.min(width, CARD), roles = state.roles ?? [], selected = Math.max(0, Math.min(roles.length - 1, state.selected ?? 0));
+  const cardWidth = Math.min(Math.max(1, width - 1), CARD), roles = state.roles ?? [], selected = Math.max(0, Math.min(roles.length - 1, state.selected ?? 0));
   const top = [projectLine(state.project), ...gauges(state.usage, width, now), []];
   // Pipeline and story sit under the cards, where a tall pane otherwise leaves empty space.
   const status = [[], ...(state.pipeline ? (pixel && chips(state.pipeline, cardWidth, t)) || pipelineRows(state.pipeline, width) : [])];
@@ -400,8 +400,12 @@ export function renderConsole(state, width = 80, height = 24, { color = null, no
   const header = [...(height - big.length - rest >= need || height - 1 - rest < need ? big : compact), ...top];
   const room = Math.max(1, height - header.length - status.length - 1);
   const density = pixel && cardWidth >= 50 && roles.length * cardHeight <= room ? 'pixel' : cardWidth >= 34 && roles.length * 9 <= room ? 'full' : cardWidth >= 22 && roles.length * 5 <= room ? 'mini' : 'line';
-  const blocks = roles.map((row, index) => density === 'line' ? [roleLine(row, index === selected, frame, now)]
-    : density === 'pixel' ? pixelCard(row, index === selected, cardWidth, t, tick, now) : card(row, index === selected, cardWidth, density, frame, now));
+  const blocks = roles.map((row, index) => {
+    const selectedRole = index === selected, block = density === 'line' ? [roleLine(row, selectedRole, frame, now)]
+      : density === 'pixel' ? pixelCard(row, selectedRole, cardWidth, t, tick, now) : card(row, selectedRole, cardWidth, density, frame, now);
+    if (selectedRole && density !== 'line' && block.length) block[Math.floor(block.length / 2)].push(['←', 'bold', 'fg:accent']);
+    return block;
+  });
   const start = blocks.slice(0, selected).flat().length, end = start + (blocks[selected]?.length ?? 0), offset = end > room ? end - room : 0;
   const body = blocks.flat().slice(offset, offset + room);
   const lines = [...header, ...body, ...status, footer];

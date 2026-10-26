@@ -1,3 +1,4 @@
+import type { Reservation } from "@o2o/shared/contracts";
 import type { ReactNode } from "react";
 
 import * as stylex from "@stylexjs/stylex";
@@ -11,12 +12,11 @@ import { createAppColumnHelper, DataTable } from "@/shared/ui/data-table/data-ta
 import { EmptyState } from "@/shared/ui/empty-state/empty-state.tsx";
 import { Skeleton } from "@/shared/ui/skeleton/skeleton.tsx";
 
-import type { Reservation } from "./reservations.mock.ts";
-
 import { colors, controls } from "../../shared/ui/theme.stylex.ts";
 import { reservationQueries } from "./reservations.api.ts";
 import {
   formatDay,
+  formatMinutes,
   formatMoment,
   formatMonthDay,
   sameDay,
@@ -177,6 +177,14 @@ const styles = stylex.create({
     wordBreak: "keep-all",
     overflowWrap: "anywhere",
   },
+  names: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+    margin: 0,
+    padding: 0,
+    listStyle: "none",
+  },
   phoneTail: {
     color: colors.textMuted,
     fontSize: controls.hintFontSize,
@@ -246,12 +254,31 @@ const baseColumns = columnHelper.columns([
   columnHelper.display({
     id: "treatment",
     header: "시술",
-    cell: ({ row: { original: reservation } }) => (
-      <span {...stylex.props(styles.stack, cancelledText(reservation))}>
-        <span {...stylex.props(styles.name)}>{reservation.treatment.name}</span>
-        <span {...stylex.props(styles.sub)}>{reservation.treatment.duration}분</span>
-      </span>
-    ),
+    cell: ({ row: { original: reservation } }) => {
+      const { treatments } = reservation;
+      const total = treatments.reduce((sum, treatment) => sum + treatment.duration, 0);
+      // 여러 개여도 '외 N개'로 줄이지 않고 이름을 모두 보인다
+      return (
+        <span {...stylex.props(styles.stack, cancelledText(reservation))}>
+          {treatments.length === 1 ? (
+            <span {...stylex.props(styles.name)}>{treatments[0]?.name}</span>
+          ) : (
+            <ul {...stylex.props(styles.names)}>
+              {treatments.map((treatment) => (
+                <li key={treatment.id} {...stylex.props(styles.name)}>
+                  {treatment.name}
+                </li>
+              ))}
+            </ul>
+          )}
+          <span {...stylex.props(styles.sub)}>
+            {treatments.length === 1
+              ? formatMinutes(total)
+              : `시술 ${treatments.length}개 · 총 ${formatMinutes(total)}`}
+          </span>
+        </span>
+      );
+    },
   }),
   columnHelper.display({
     id: "status",

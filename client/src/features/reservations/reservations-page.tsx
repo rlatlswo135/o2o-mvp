@@ -1,13 +1,12 @@
+import type { Reservation } from "@o2o/shared/contracts";
+
 import * as stylex from "@stylexjs/stylex";
 import { useIsMutating } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 
 import { Button } from "@/shared/ui/button/button.tsx";
-import { Notice } from "@/shared/ui/notice/notice.tsx";
 import { Sheet } from "@/shared/ui/sheet/sheet.tsx";
-
-import type { Reservation } from "./reservations.mock.ts";
 
 import { colors, radii, shadows } from "../../shared/ui/theme.stylex.ts";
 import { CancelReservationForm } from "./forms/cancel-reservation-form.tsx";
@@ -91,12 +90,6 @@ export function ReservationsPage() {
         <h1 {...stylex.props(styles.title)}>예약</h1>
         <p {...stylex.props(styles.description)}>날짜별로 예약을 확인하고 등록·수정·취소해요.</p>
       </div>
-
-      <Notice
-        tone="info"
-        title="가상 데이터로 확인하는 화면이에요"
-        description="예약은 서버에 저장되지 않아요. 다른 메뉴에 다녀와도 남아 있지만, 새로고침하면 모두 사라져요. 같은 시간에 겹치는 예약도 막지 않아요(중복 검사 미지원)."
-      />
 
       <ReservationDateBar date={date} today={today} onChange={handleDateChange} />
 
