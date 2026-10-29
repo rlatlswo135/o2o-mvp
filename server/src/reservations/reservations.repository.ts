@@ -24,11 +24,9 @@ type ReservationRow = typeof reservations.$inferSelect;
 export class ReservationsRepository {
   constructor(@InjectDrizzle() private readonly db: NodePgDatabase) {}
 
-  /** TODO: work을 DB 트랜잭션에 전달하고 결과를 반환한다. */
-  transaction<T>(_work: (tx: Transaction) => Promise<T>): Promise<T> {
-    return this.db.transaction(async (_tx) => {
-      throw new Error('TODO: pass transaction handle to work');
-    });
+  /** work를 DB 트랜잭션에 전달한다. 정상 완료면 커밋하고 결과를, 예외면 롤백하고 그 예외를 그대로 돌려준다. */
+  transaction<T>(work: (tx: Transaction) => Promise<T>): Promise<T> {
+    return this.db.transaction((tx) => work(tx));
   }
 
   /** [from, to)에 시작한 예약. 시작 시각, 같으면 id 순이다. */
