@@ -11,6 +11,4 @@ export const contract = {
 
 export * from "./customer/customers.schema.ts";
 export * from "./reservation/reservations.schema.ts";
-export * from "./reservation/reservations.snapshot.ts";
-export * from "./reservation/reservations.time.ts";
 export * from "./treatment/treatments.schema.ts";

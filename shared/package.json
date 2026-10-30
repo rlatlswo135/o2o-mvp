@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./contracts": "./contracts/index.ts"
+    "./contracts": "./contracts/index.ts",
+    "./date": "./date/kst.ts"
   },
   "scripts": {
     "test": "vp test",

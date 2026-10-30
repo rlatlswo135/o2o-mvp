@@ -1,21 +1,41 @@
-// 날짜·시각 규칙(한국 시간, 연도 범위, 종료 계산)은 서버와 같은 shared 규칙을 쓴다. 여기는 화면 표시만 둔다.
-import { dateOf, dayRange, formatDate, kstParts, timeOf } from "@o2o/shared/contracts";
+// 한국 시간 계산은 shared/date, 예약 연도 범위는 계약 규칙을 쓴다. 여기는 화면 표시와 종료 예정 계산만 둔다.
+import { addMinutes, dateOf, dayRange, formatDate, kstParts, timeOf } from "@o2o/shared/date";
 
 export {
   addDays,
   dateOf,
   dayRange,
   formatDate,
-  isSupportedDate,
   isValidTime,
-  maxYear,
-  minYear,
   parseDate,
-  scheduleOf,
   startAtOf,
   timeOf,
-} from "@o2o/shared/contracts";
-export type { CalendarDate } from "@o2o/shared/contracts";
+} from "@o2o/shared/date";
+export type { CalendarDate } from "@o2o/shared/date";
+export { isSupportedDate, maxYear, minYear } from "@o2o/shared/contracts";
+
+export const isValidDuration = (minutes: number) => Number.isSafeInteger(minutes) && minutes > 0;
+
+// 고른 시술 시간의 합. 올바르지 않은 시간이 있거나 합이 안전 정수를 넘으면 null
+export function totalMinutesOf(durations: ReadonlyArray<number>): number | null {
+  let total = 0;
+  for (const minutes of durations) {
+    if (!isValidDuration(minutes)) return null;
+    total += minutes;
+    if (!Number.isSafeInteger(total)) return null;
+  }
+  return durations.length === 0 ? null : total;
+}
+
+export type Schedule = { startAt: number; endAt: number; totalMinutes: number };
+
+// 종료 = 한국 시간 시작 일시 + 모든 시술 시간의 합
+export function scheduleOf(startAt: number, durations: ReadonlyArray<number>): Schedule | null {
+  const totalMinutes = totalMinutesOf(durations);
+  if (totalMinutes === null) return null;
+  const endAt = addMinutes(startAt, totalMinutes);
+  return endAt === null ? null : { startAt, endAt, totalMinutes };
+}
 
 const weekdays = ["일", "월", "화", "수", "목", "금", "토"] as const;
 const longWeekdays = [

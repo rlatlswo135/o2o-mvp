@@ -2,21 +2,22 @@ import type {
   ReservationCustomer,
   ReservationInput,
   ReservationTreatment,
-  Schedule,
 } from "@o2o/shared/contracts";
 
-import { isValidDuration, snapshotTreatments, totalMinutesOf } from "@o2o/shared/contracts";
 import { z } from "zod";
 
 import type { RejectionReason } from "./reservations.api.ts";
+import type { Schedule } from "./reservations.time.ts";
 
 import {
+  isValidDuration,
   isValidTime,
   maxYear,
   minYear,
   parseDate,
   scheduleOf,
   startAtOf,
+  totalMinutesOf,
 } from "./reservations.time.ts";
 
 // loading: 처음 불러오는 중, failed: 받아 둔 목록 없이 실패, empty: 0건, ready: 고를 수 있음
@@ -105,13 +106,29 @@ export function treatmentRows(
   return [...vanished, ...deleted, ...rest];
 }
 
-// 체크 목록 순서대로 정렬한 체크된 시술. 사라진 시술이 섞여 있으면 missing
-function checkedTreatments(checkedIds: ReadonlyArray<string>, choices: ReservationChoices) {
+type CheckedTreatments =
+  | { kind: "ok"; treatments: ReservationTreatment[] }
+  | { kind: "missing"; treatmentIds: number[] };
+
+// 체크 목록 순서대로 정렬한 체크된 시술. 기존 예약 시술은 예약 당시 값을 쓴다. 사라진 시술이 섞여 있으면 missing
+function checkedTreatments(
+  checkedIds: ReadonlyArray<string>,
+  choices: ReservationChoices,
+): CheckedTreatments {
   const checked = new Set(checkedIds);
-  const ids = treatmentRows(checkedIds, choices)
-    .filter((row) => checked.has(String(row.id)))
-    .map((row) => row.id);
-  return snapshotTreatments(ids, choices.keptTreatments, choices.treatments.items);
+  const treatments: ReservationTreatment[] = [];
+  const missing: number[] = [];
+  for (const row of treatmentRows(checkedIds, choices)) {
+    if (!checked.has(String(row.id))) continue;
+    const found =
+      choices.keptTreatments.find((item) => item.id === row.id) ??
+      choices.treatments.items.find((item) => item.id === row.id);
+    if (found) treatments.push({ id: found.id, name: found.name, duration: found.duration });
+    else missing.push(row.id);
+  }
+  return missing.length > 0
+    ? { kind: "missing", treatmentIds: missing }
+    : { kind: "ok", treatments };
 }
 
 export type ReservationPreview = {
@@ -125,7 +142,6 @@ export type ReservationPreview = {
   outOfRange: boolean;
 };
 
-// 종료 예정 표시와 저장이 같은 규칙(shared scheduleOf)을 쓴다
 export function previewSchedule(
   values: Pick<ReservationFormValues, "treatmentIds" | "date" | "startTime">,
   choices: ReservationChoices,
