@@ -3,7 +3,7 @@ import type { Customer, CustomerInput } from "@o2o/shared/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { formatPhone } from "@/shared/format/phone.ts";
-import { toast } from "@/shared/ui/toast/toast.tsx";
+import { toast } from "@/shared/ui";
 
 import type { CustomerFormProps } from "./customer-form.tsx";
 

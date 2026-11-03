@@ -1,12 +1,13 @@
 import type { Reservation } from "@o2o/shared/contracts";
 
+import { isSupportedDate } from "@o2o/shared/contracts";
+import { kst } from "@o2o/shared/date";
 import * as stylex from "@stylexjs/stylex";
 import { useIsMutating } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 
-import { Button } from "@/shared/ui/button/button.tsx";
-import { Sheet } from "@/shared/ui/sheet/sheet.tsx";
+import { Button, Sheet } from "@/shared/ui";
 
 import { colors, radii, shadows } from "../../shared/ui/theme.stylex.ts";
 import { CancelReservationForm } from "./forms/cancel-reservation-form.tsx";
@@ -15,7 +16,6 @@ import { EditReservationForm } from "./forms/edit-reservation-form.tsx";
 import { ReservationDateBar } from "./reservation-date-bar.tsx";
 import { ReservationList } from "./reservation-list.tsx";
 import { reservationMutationKeys } from "./reservations.api.ts";
-import { isSupportedDate, todayKst } from "./reservations.time.ts";
 
 const panelId = "reservation-panel";
 
@@ -36,7 +36,7 @@ type FinishOptions = {
 export function ReservationsPage() {
   const search = route.useSearch();
   const navigate = route.useNavigate();
-  const today = todayKst();
+  const today = kst.now().date();
   const date = search.date !== undefined && isSupportedDate(search.date) ? search.date : today;
   const includeCancelled = search.cancelled !== undefined && String(search.cancelled) === "1";
 

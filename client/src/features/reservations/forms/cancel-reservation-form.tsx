@@ -1,35 +1,24 @@
 import type { Reservation } from "@o2o/shared/contracts";
 import type { FormEvent } from "react";
 
+import { kst } from "@o2o/shared/date";
 import * as stylex from "@stylexjs/stylex";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
-import type { NoticeContent } from "@/shared/ui/notice/notice.tsx";
+import type { NoticeContent } from "@/shared/ui";
 
 import { formatPhone } from "@/shared/format/phone.ts";
-import { Button } from "@/shared/ui/button/button.tsx";
-import { Field } from "@/shared/ui/field/field.tsx";
-import { Textarea } from "@/shared/ui/textarea/textarea.tsx";
-import { toast } from "@/shared/ui/toast/toast.tsx";
+import { Button, Field, Textarea, toast } from "@/shared/ui";
+import { colors, controls } from "@/shared/ui/theme.stylex.ts";
 
 import type { CancelInput } from "../reservations.schema.ts";
 
-import { colors, controls } from "../../../shared/ui/theme.stylex.ts";
 import { cancelReservation, reservationMutationKeys } from "../reservations.api.ts";
 import { cancelInputSchema } from "../reservations.schema.ts";
-import {
-  dateOf,
-  formatDay,
-  formatMinutes,
-  formatMoment,
-  formatMonthDay,
-  sameDay,
-  timeOf,
-  yearOf,
-} from "../reservations.time.ts";
+import { formatDay, formatMinutes, formatMoment, formatMonthDay } from "../reservations.util.ts";
 import { ReservationSheetFrame } from "./reservation-sheet-frame.tsx";
 
 export type CancelReservationFormProps = {
@@ -53,7 +42,7 @@ const cancelUnknown: NoticeContent = {
 
 // 서버가 확인한 처음 취소 시각·사유. 목록 재조회 결과에 기대지 않는다
 const alreadyCancelledDescription = ({ cancelledAt, cancelReason, startAt }: Reservation) => {
-  const when = cancelledAt === null ? "" : `${formatMoment(cancelledAt, yearOf(startAt))}에 `;
+  const when = cancelledAt === null ? "" : `${formatMoment(cancelledAt, kst(startAt).year)}에 `;
   const record =
     cancelReason === null ? "처음 취소한 기록" : `처음 취소한 기록(사유: ${cancelReason})`;
   return `${when}먼저 취소됐어요. ${record}은 그대로 남아 있어요.`;
@@ -91,7 +80,7 @@ export function CancelReservationForm({
             onFinish();
             toast.success({
               title: "예약을 취소했어요.",
-              description: `${reservation.customer.name} · ${formatMonthDay(dateOf(reservation.startAt))} ${timeOf(reservation.startAt)}. '취소 포함'을 켜면 취소 기록을 볼 수 있어요.`,
+              description: `${reservation.customer.name} · ${formatMonthDay(kst(reservation.startAt).date())} ${kst(reservation.startAt).time()}. '취소 포함'을 켜면 취소 기록을 볼 수 있어요.`,
             });
             break;
           case "already_cancelled":
@@ -172,13 +161,13 @@ export function CancelReservationForm({
         </p>
         <p {...stylex.props(styles.summaryWhen)}>
           <span {...stylex.props(styles.nowrap)}>
-            {formatDay(startAt)} {timeOf(startAt)}
+            {formatDay(startAt)} {kst(startAt).time()}
           </span>{" "}
           –{" "}
           <span {...stylex.props(styles.nowrap)}>
-            {sameDay(startAt, endAt)
-              ? timeOf(endAt)
-              : `${formatDay(endAt, yearOf(startAt))} ${timeOf(endAt)}`}
+            {kst(startAt).isSameDay(kst(endAt))
+              ? kst(endAt).time()
+              : `${formatDay(endAt, kst(startAt).year)} ${kst(endAt).time()}`}
           </span>
         </p>
         {treatments.length === 1 ? (

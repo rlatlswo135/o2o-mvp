@@ -5,14 +5,9 @@ import { useForm } from "@tanstack/react-form";
 import { useId, useRef } from "react";
 import { flushSync } from "react-dom";
 
-import type { NoticeContent } from "@/shared/ui/notice/notice.tsx";
+import type { NoticeContent } from "@/shared/ui";
 
-import { AmountInput } from "@/shared/ui/amount-field/amount-field.tsx";
-import { Button } from "@/shared/ui/button/button.tsx";
-import { Field } from "@/shared/ui/field/field.tsx";
-import { Input } from "@/shared/ui/input/input.tsx";
-import { LiveNotice } from "@/shared/ui/notice/notice.tsx";
-import { useSheetTitleId } from "@/shared/ui/sheet/sheet.tsx";
+import { AmountInput, Button, Field, Input, LiveNotice, useSheetTitleId } from "@/shared/ui";
 
 import type { TreatmentFieldErrors } from "../treatments.api.ts";
 import type { TreatmentInput } from "../treatments.schema.ts";

@@ -1,9 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
-import type { NoticeContent } from "@/shared/ui/notice/notice.tsx";
+import type { NoticeContent } from "@/shared/ui";
 
-import { toast } from "@/shared/ui/toast/toast.tsx";
+import { toast } from "@/shared/ui";
 
 import type { TreatmentInput } from "../treatments.schema.ts";
 import type { TreatmentFormProps } from "./treatment-form.tsx";

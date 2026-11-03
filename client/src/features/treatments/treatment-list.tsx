@@ -4,10 +4,7 @@ import type { ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { useQuery } from "@tanstack/react-query";
 
-import { formatAmount } from "@/shared/ui/amount-field/amount-field.util.ts";
-import { createAppColumnHelper, DataTable } from "@/shared/ui/data-table/data-table.tsx";
-import { EmptyState } from "@/shared/ui/empty-state/empty-state.tsx";
-import { Skeleton } from "@/shared/ui/skeleton/skeleton.tsx";
+import { createAppColumnHelper, DataTable, EmptyState, formatAmount, Skeleton } from "@/shared/ui";
 
 import { colors, controls } from "../../shared/ui/theme.stylex.ts";
 import { treatmentQueries } from "./treatments.api.ts";

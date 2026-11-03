@@ -2,14 +2,13 @@ import type { ReactNode } from "react";
 
 import * as stylex from "@stylexjs/stylex";
 
-import { Checkbox } from "@/shared/ui/choice/choice.tsx";
-import { joinIds } from "@/shared/ui/field/field.tsx";
+import { Checkbox, joinIds } from "@/shared/ui";
 import { a11yStyles, groupStyles } from "@/shared/ui/internal/control-styles.ts";
 
 import type { ChoiceKind, TreatmentRow } from "../reservations.schema.ts";
 
 import { colors, controls } from "../../../shared/ui/theme.stylex.ts";
-import { formatMinutes } from "../reservations.time.ts";
+import { formatMinutes } from "../reservations.util.ts";
 
 export type TreatmentChecklistProps = {
   id: string;

@@ -1,22 +1,14 @@
 import type { FormEvent, KeyboardEvent } from "react";
 
+import { isSupportedDate, maxYear, minYear } from "@o2o/shared/contracts";
+import { kst } from "@o2o/shared/date";
 import * as stylex from "@stylexjs/stylex";
 import { useId, useRef, useState } from "react";
 
-import { Button } from "@/shared/ui/button/button.tsx";
-import { Input } from "@/shared/ui/input/input.tsx";
+import { Button, Input } from "@/shared/ui";
 
 import { colors, controls } from "../../shared/ui/theme.stylex.ts";
-import {
-  addDays,
-  dayRange,
-  formatBarDate,
-  formatDay,
-  formatMonthDay,
-  isSupportedDate,
-  maxYear,
-  minYear,
-} from "./reservations.time.ts";
+import { formatBarDate, formatDay, formatMonthDay } from "./reservations.util.ts";
 
 export type ReservationDateBarProps = {
   // 지금 조회 중인(확정된) 날짜(YYYY-MM-DD)
@@ -43,8 +35,10 @@ export function ReservationDateBar({ date, today, onChange }: ReservationDateBar
     setDraft(null);
   }
   const dirty = draft !== null && draft.value !== date;
-  const previous = addDays(date, -1);
-  const next = addDays(date, 1);
+  // 확정 날짜는 늘 올바른 날짜다. 만일 아니면 이동하지 않는다
+  const current = kst.parseDate(date);
+  const previous = current?.addDays(-1).date() ?? date;
+  const next = current?.addDays(1).date() ?? date;
 
   const go = (target: string) => {
     setDraft(null);
@@ -156,14 +150,12 @@ export function ReservationDateBar({ date, today, onChange }: ReservationDateBar
 // 휴대폰에는 Enter가 없어 안내에 Enter를 적지 않는다
 function draftHint(value: string, date: string) {
   if (value === "") return "날짜를 끝까지 입력한 뒤 조회를 눌러주세요.";
-  const range = isSupportedDate(value) ? dayRange(value) : null;
-  if (!range) return rangeMessage;
+  const day = isSupportedDate(value) ? kst.parseDate(value) : null;
+  if (!day) return rangeMessage;
   return (
     <>
       조회를 눌러야{" "}
-      <span {...stylex.props(styles.hintDate)}>
-        {formatDay(range.from, Number(date.slice(0, 4)))}
-      </span>{" "}
+      <span {...stylex.props(styles.hintDate)}>{formatDay(day.ms, kst.parseDate(date)?.year)}</span>{" "}
       예약으로 바뀌어요.
     </>
   );

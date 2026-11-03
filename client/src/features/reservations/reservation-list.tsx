@@ -1,28 +1,24 @@
 import type { Reservation } from "@o2o/shared/contracts";
 import type { ReactNode } from "react";
 
+import { kst } from "@o2o/shared/date";
 import * as stylex from "@stylexjs/stylex";
 import { useQuery } from "@tanstack/react-query";
 
 import { formatPhone } from "@/shared/format/phone.ts";
-import { Badge } from "@/shared/ui/badge/badge.tsx";
-import { Button } from "@/shared/ui/button/button.tsx";
-import { Switch } from "@/shared/ui/choice/choice.tsx";
-import { createAppColumnHelper, DataTable } from "@/shared/ui/data-table/data-table.tsx";
-import { EmptyState } from "@/shared/ui/empty-state/empty-state.tsx";
-import { Skeleton } from "@/shared/ui/skeleton/skeleton.tsx";
+import {
+  Badge,
+  Button,
+  createAppColumnHelper,
+  DataTable,
+  EmptyState,
+  Skeleton,
+  Switch,
+} from "@/shared/ui";
 
 import { colors, controls } from "../../shared/ui/theme.stylex.ts";
 import { reservationQueries } from "./reservations.api.ts";
-import {
-  formatDay,
-  formatMinutes,
-  formatMoment,
-  formatMonthDay,
-  sameDay,
-  timeOf,
-  yearOf,
-} from "./reservations.time.ts";
+import { formatDay, formatMinutes, formatMoment, formatMonthDay } from "./reservations.util.ts";
 
 export type ReservationListProps = {
   date: string;
@@ -71,7 +67,7 @@ export function ReservationList({
             </span>
           );
         }
-        const label = `${reservation.customer.name} ${timeOf(reservation.startAt)}`;
+        const label = `${reservation.customer.name} ${kst(reservation.startAt).time()}`;
         return (
           <span {...stylex.props(styles.manage)}>
             <Button
@@ -227,12 +223,12 @@ const baseColumns = columnHelper.columns([
     cell: ({ row: { original: reservation } }) => (
       <span {...stylex.props(styles.stack, cancelledText(reservation))}>
         <span {...stylex.props(styles.time)}>
-          {timeOf(reservation.startAt)} – {timeOf(reservation.endAt)}
+          {kst(reservation.startAt).time()} – {kst(reservation.endAt).time()}
         </span>
-        {!sameDay(reservation.startAt, reservation.endAt) && (
+        {!kst(reservation.startAt).isSameDay(kst(reservation.endAt)) && (
           <span {...stylex.props(styles.sub)}>
-            종료 {formatDay(reservation.endAt, yearOf(reservation.startAt))}{" "}
-            {timeOf(reservation.endAt)}
+            종료 {formatDay(reservation.endAt, kst(reservation.startAt).year)}{" "}
+            {kst(reservation.endAt).time()}
           </span>
         )}
       </span>
@@ -294,7 +290,7 @@ const baseColumns = columnHelper.columns([
             <Badge tone="neutral">취소</Badge>
           </span>
           <span {...stylex.props(styles.sub)}>
-            {formatMoment(reservation.cancelledAt, yearOf(reservation.startAt))} 취소
+            {formatMoment(reservation.cancelledAt, kst(reservation.startAt).year)} 취소
           </span>
           {reservation.cancelReason && (
             <span {...stylex.props(styles.sub, styles.reason)}>

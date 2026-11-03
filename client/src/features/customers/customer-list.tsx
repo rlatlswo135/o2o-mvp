@@ -5,10 +5,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useQuery } from "@tanstack/react-query";
 
 import { formatPhone } from "@/shared/format/phone.ts";
-import { Button } from "@/shared/ui/button/button.tsx";
-import { createAppColumnHelper, DataTable } from "@/shared/ui/data-table/data-table.tsx";
-import { EmptyState } from "@/shared/ui/empty-state/empty-state.tsx";
-import { Skeleton } from "@/shared/ui/skeleton/skeleton.tsx";
+import { Button, createAppColumnHelper, DataTable, EmptyState, Skeleton } from "@/shared/ui";
 
 import { colors } from "../../shared/ui/theme.stylex.ts";
 import { customerQueries } from "./customers.api.ts";

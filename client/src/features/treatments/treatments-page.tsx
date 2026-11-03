@@ -2,8 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useIsMutating } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
-import { Button } from "@/shared/ui/button/button.tsx";
-import { Sheet } from "@/shared/ui/sheet/sheet.tsx";
+import { Button, Sheet } from "@/shared/ui";
 
 import { colors, radii, shadows } from "../../shared/ui/theme.stylex.ts";
 import { CreateTreatmentForm } from "./forms/create-treatment-form.tsx";

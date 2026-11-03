@@ -7,10 +7,7 @@ import { useForm } from "@tanstack/react-form";
 import { useId, useRef } from "react";
 import { flushSync } from "react-dom";
 
-import { Button } from "@/shared/ui/button/button.tsx";
-import { Field } from "@/shared/ui/field/field.tsx";
-import { Input } from "@/shared/ui/input/input.tsx";
-import { useSheetTitleId } from "@/shared/ui/sheet/sheet.tsx";
+import { Button, Field, Input, useSheetTitleId } from "@/shared/ui";
 
 import { colors, controls, radii } from "../../../shared/ui/theme.stylex.ts";
 

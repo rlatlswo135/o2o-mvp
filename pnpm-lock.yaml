@@ -436,6 +436,9 @@ importers:
       '@orpc/openapi':
         specifier: 'catalog:'
         version: 2.0.0-beta.43
+      dayjs:
+        specifier: ^1.11.23
+        version: 1.11.23
       zod:
         specifier: 'catalog:'
         version: 4.6.5

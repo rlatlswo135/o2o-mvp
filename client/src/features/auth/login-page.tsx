@@ -4,10 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useId } from "react";
 
 import { Brand } from "@/shared/brand/brand.tsx";
-import { Button } from "@/shared/ui/button/button.tsx";
-import { Field } from "@/shared/ui/field/field.tsx";
-import { Input } from "@/shared/ui/input/input.tsx";
-import { Notice } from "@/shared/ui/notice/notice.tsx";
+import { Button, Field, Input, Notice } from "@/shared/ui";
 
 import { colors, radii, shadows } from "../../shared/ui/theme.stylex.ts";
 

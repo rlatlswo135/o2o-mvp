@@ -3,11 +3,9 @@ import type { FormEvent, ReactNode, Ref } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { useId } from "react";
 
-import type { NoticeContent } from "@/shared/ui/notice/notice.tsx";
+import type { NoticeContent } from "@/shared/ui";
 
-import { Button } from "@/shared/ui/button/button.tsx";
-import { LiveNotice } from "@/shared/ui/notice/notice.tsx";
-import { useSheetTitleId } from "@/shared/ui/sheet/sheet.tsx";
+import { Button, LiveNotice, useSheetTitleId } from "@/shared/ui";
 
 import { colors, controls } from "../../../shared/ui/theme.stylex.ts";
 

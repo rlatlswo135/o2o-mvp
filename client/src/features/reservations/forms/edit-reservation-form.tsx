@@ -1,17 +1,18 @@
 import type { Reservation, ReservationInput } from "@o2o/shared/contracts";
 
+import { kst } from "@o2o/shared/date";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
-import type { NoticeContent } from "@/shared/ui/notice/notice.tsx";
+import type { NoticeContent } from "@/shared/ui";
 
-import { toast } from "@/shared/ui/toast/toast.tsx";
+import { toast } from "@/shared/ui";
 
 import type { ReservationFormProps } from "./reservation-form.tsx";
 
 import { reservationMutationKeys, updateReservation } from "../reservations.api.ts";
 import { rejectionErrors } from "../reservations.schema.ts";
-import { dateOf, formatDay, formatMoment, timeOf, yearOf } from "../reservations.time.ts";
+import { formatDay, formatMoment } from "../reservations.util.ts";
 import { ReservationForm } from "./reservation-form.tsx";
 
 export type EditReservationFormProps = {
@@ -36,7 +37,7 @@ const saveUnknown: NoticeContent = {
 
 // 서버가 확인한 처음 취소 시각·사유. 목록 재조회 결과에 기대지 않는다
 const cancelledDescription = ({ cancelledAt, cancelReason, startAt }: Reservation) => {
-  const when = cancelledAt === null ? "" : `${formatMoment(cancelledAt, yearOf(startAt))}에 `;
+  const when = cancelledAt === null ? "" : `${formatMoment(cancelledAt, kst(startAt).year)}에 `;
   const reason = cancelReason === null ? "" : ` · 사유: ${cancelReason}`;
   return `${when}취소됐어요${reason}. 수정할 수 없어요.`;
 };
@@ -70,12 +71,12 @@ export function EditReservationForm({ reservation, onFinish, onClose }: EditRese
         switch (result.kind) {
           case "updated": {
             const { startAt } = result.reservation;
-            const moved = dateOf(startAt) !== dateOf(reservation.startAt);
-            onFinish({ date: dateOf(startAt) });
+            const moved = kst(startAt).date() !== kst(reservation.startAt).date();
+            onFinish({ date: kst(startAt).date() });
             toast.success({
               title: "예약을 수정했어요.",
               ...(moved && {
-                description: `${formatDay(startAt, Number(dateOf(reservation.startAt).slice(0, 4)))} ${timeOf(startAt)}으로 옮겼어요.`,
+                description: `${formatDay(startAt, kst(reservation.startAt).year)} ${kst(startAt).time()}으로 옮겼어요.`,
               }),
             });
             break;
@@ -118,8 +119,8 @@ export function EditReservationForm({ reservation, onFinish, onClose }: EditRese
       defaultValues={{
         customerId: String(reservation.customer.id),
         treatmentIds: reservation.treatments.map((treatment) => String(treatment.id)),
-        date: dateOf(reservation.startAt),
-        startTime: timeOf(reservation.startAt),
+        date: kst(reservation.startAt).date(),
+        startTime: kst(reservation.startAt).time(),
       }}
       kept={{ customer: reservation.customer, treatments: reservation.treatments }}
       status={saving ? "saving" : stale ? "locked" : "idle"}

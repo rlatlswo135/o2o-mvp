@@ -1,7 +1,7 @@
+import { isSupportedDate } from "@o2o/shared/contracts";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import { ReservationsPage } from "@/features/reservations/reservations-page.tsx";
-import { isSupportedDate } from "@/features/reservations/reservations.time.ts";
 
 // cancelled는 켜졌을 때 숫자 1(주소 ?cancelled=1). 문자열 "1"로 쓰면 주소가 %221%22가 된다
 type ReservationsSearch = {

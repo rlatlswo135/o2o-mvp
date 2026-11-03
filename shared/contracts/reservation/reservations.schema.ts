@@ -1,19 +1,23 @@
 import { z } from "zod";
 
-import { dateOf, minuteMs, parseDate } from "../../date/kst.ts";
+import { kst, minuteMs } from "../../date/kst.ts";
 
 // 예약 시작·조회 날짜의 연도 범위
 export const minYear = 2000;
 export const maxYear = 2099;
 
+const isSupportedYear = (year: number) => year >= minYear && year <= maxYear;
+
 export function isSupportedDate(text: string) {
-  const date = parseDate(text);
-  return date !== null && date.year >= minYear && date.year <= maxYear;
+  const date = kst.parseDate(text);
+  return date !== null && isSupportedYear(date.year);
 }
 
 // HH:MM 입력과 같아야 하므로 분 경계만 받는다. 초·밀리초가 숨은 시작 시각은 예약할 수 없다
 function isSupportedStartAt(ms: number) {
-  return Number.isSafeInteger(ms) && ms % minuteMs === 0 && isSupportedDate(dateOf(ms));
+  if (!Number.isSafeInteger(ms) || ms % minuteMs !== 0) return false;
+  const startAt = kst(ms);
+  return startAt.isValid() && isSupportedYear(startAt.year);
 }
 
 // id 컬럼은 Postgres integer라서 그 범위를 넘는 값은 DB 오류(500) 대신 입력 오류(400)로 돌려준다.

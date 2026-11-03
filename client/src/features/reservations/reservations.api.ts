@@ -1,6 +1,7 @@
 import type { Reservation, ReservationInput, ReservationRejection } from "@o2o/shared/contracts";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 
+import { kst } from "@o2o/shared/date";
 import { isDefinedError, safe } from "@orpc/client";
 import { queryOptions } from "@tanstack/react-query";
 
@@ -10,7 +11,6 @@ import type { CancelInput } from "./reservations.schema.ts";
 
 import { customerQueries } from "../customers/customers.api.ts";
 import { treatmentQueries } from "../treatments/treatments.api.ts";
-import { dayRange } from "./reservations.time.ts";
 
 export type ReservationListParams = { date: string; includeCancelled: boolean };
 
@@ -45,7 +45,7 @@ function selectReservations(
   rows: ReadonlyArray<Reservation>,
   { date, includeCancelled }: ReservationListParams,
 ): Reservation[] {
-  const range = dayRange(date);
+  const range = kst.parseDate(date)?.dayRange();
   if (!range) return [];
   return rows
     .filter(

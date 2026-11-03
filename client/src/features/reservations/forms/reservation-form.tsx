@@ -5,20 +5,14 @@ import type {
 } from "@o2o/shared/contracts";
 import type { FormEvent } from "react";
 
+import { maxYear, minYear } from "@o2o/shared/contracts";
+import { kst } from "@o2o/shared/date";
 import * as stylex from "@stylexjs/stylex";
 import { useForm } from "@tanstack/react-form";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-
-import type { NoticeContent } from "@/shared/ui/notice/notice.tsx";
-
-import { formatPhone } from "@/shared/format/phone.ts";
-import { Button } from "@/shared/ui/button/button.tsx";
-import { Field } from "@/shared/ui/field/field.tsx";
-import { Input } from "@/shared/ui/input/input.tsx";
-import { Select } from "@/shared/ui/select/select.tsx";
 
 import type {
   ChoiceKind,
@@ -27,29 +21,27 @@ import type {
   ReservationFormValues,
   ReservationPreview,
   TreatmentRow,
-} from "../reservations.schema.ts";
+} from "@/features/reservations/reservations.schema.ts";
+import type { NoticeContent } from "@/shared/ui";
 
-import { colors, controls } from "../../../shared/ui/theme.stylex.ts";
-import { customerQueries } from "../../customers/customers.api.ts";
-import { treatmentQueries } from "../../treatments/treatments.api.ts";
+import { customerQueries } from "@/features/customers/customers.api.ts";
+import { ReservationSheetFrame } from "@/features/reservations/forms/reservation-sheet-frame.tsx";
+import { TreatmentChecklist } from "@/features/reservations/forms/treatment-checklist.tsx";
 import {
   previewSchedule,
   reservationFieldNames,
   reservationInputSchema,
   treatmentRows,
-} from "../reservations.schema.ts";
+} from "@/features/reservations/reservations.schema.ts";
 import {
   formatDay,
   formatMinutes,
   formatTotal,
-  maxYear,
-  minYear,
-  sameDay,
-  timeOf,
-  yearOf,
-} from "../reservations.time.ts";
-import { ReservationSheetFrame } from "./reservation-sheet-frame.tsx";
-import { TreatmentChecklist } from "./treatment-checklist.tsx";
+} from "@/features/reservations/reservations.util.ts";
+import { treatmentQueries } from "@/features/treatments/treatments.api.ts";
+import { formatPhone } from "@/shared/format/phone.ts";
+import { Button, Field, Input, Select } from "@/shared/ui";
+import { colors, controls } from "@/shared/ui/theme.stylex.ts";
 
 // idle: 입력 가능, saving: 저장 중, locked: 수정 대상이 사라졌거나 취소돼 더 고칠 수 없음
 export type ReservationFormStatus = "idle" | "saving" | "locked";
@@ -450,14 +442,14 @@ function EndPreview({ preview, keptIds, editing }: EndPreviewProps) {
           </p>
         ) : schedule && totalMinutes !== null ? (
           <p {...stylex.props(styles.endValue)}>
-            {sameDay(schedule.startAt, schedule.endAt) ? (
-              <span {...stylex.props(styles.nowrap)}>{timeOf(schedule.endAt)}</span>
+            {kst(schedule.startAt).isSameDay(kst(schedule.endAt)) ? (
+              <span {...stylex.props(styles.nowrap)}>{kst(schedule.endAt).time()}</span>
             ) : (
               <span {...stylex.props(styles.nowrap)}>
                 <span {...stylex.props(styles.endDate)}>
-                  {formatDay(schedule.endAt, yearOf(schedule.startAt))}
+                  {formatDay(schedule.endAt, kst(schedule.startAt).year)}
                 </span>{" "}
-                {timeOf(schedule.endAt)}
+                {kst(schedule.endAt).time()}
               </span>
             )}{" "}
             · <span {...stylex.props(styles.nowrap)}>{formatTotal(totalMinutes)}</span>

@@ -1,17 +1,18 @@
 import type { ReservationInput } from "@o2o/shared/contracts";
 
+import { kst } from "@o2o/shared/date";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
-import type { NoticeContent } from "@/shared/ui/notice/notice.tsx";
+import type { NoticeContent } from "@/shared/ui";
 
-import { toast } from "@/shared/ui/toast/toast.tsx";
+import { toast } from "@/shared/ui";
 
 import type { ReservationFormProps } from "./reservation-form.tsx";
 
 import { registerReservation, reservationMutationKeys } from "../reservations.api.ts";
 import { rejectionErrors } from "../reservations.schema.ts";
-import { dateOf, formatDay, formatMonthDay, timeOf } from "../reservations.time.ts";
+import { formatDay, formatMonthDay } from "../reservations.util.ts";
 import { ReservationForm } from "./reservation-form.tsx";
 
 export type CreateReservationFormProps = {
@@ -59,10 +60,10 @@ export function CreateReservationForm({ viewDate, onFinish, onClose }: CreateRes
             const { customer, treatments, startAt } = result.reservation;
             const [first] = treatments;
             const more = treatments.length > 1 ? ` 외 ${treatments.length - 1}개` : "";
-            onFinish({ date: dateOf(startAt) });
+            onFinish({ date: kst(startAt).date() });
             toast.success({
               title: "예약을 등록했어요.",
-              description: `${formatDay(startAt, Number(viewDate.slice(0, 4)))} ${timeOf(startAt)} ${customer.name} · ${first?.name ?? ""}${more}`,
+              description: `${formatDay(startAt, Number(viewDate.slice(0, 4)))} ${kst(startAt).time()} ${customer.name} · ${first?.name ?? ""}${more}`,
             });
             break;
           }
@@ -73,7 +74,7 @@ export function CreateReservationForm({ viewDate, onFinish, onClose }: CreateRes
             break;
           }
           case "unknown":
-            setNotice(saveUnknown(dateOf(input.startAt)));
+            setNotice(saveUnknown(kst(input.startAt).date()));
             break;
         }
       },

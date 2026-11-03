@@ -4,7 +4,7 @@ import { createRootRouteWithContext, Outlet } from "@tanstack/react-router";
 
 import { DevStyleXInject } from "@/_dev/dev-stylex-inject";
 import { TanStackRouterDevtools } from "@/_dev/tanstack-router-devtools";
-import { Toaster } from "@/shared/ui/toast/toast.tsx";
+import { Toaster } from "@/shared/ui";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: () => (

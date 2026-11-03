@@ -4,21 +4,14 @@ import type {
   ReservationTreatment,
 } from "@o2o/shared/contracts";
 
+import { maxYear, minYear } from "@o2o/shared/contracts";
+import { kst } from "@o2o/shared/date";
 import { z } from "zod";
 
 import type { RejectionReason } from "./reservations.api.ts";
-import type { Schedule } from "./reservations.time.ts";
+import type { Schedule } from "./reservations.util.ts";
 
-import {
-  isValidDuration,
-  isValidTime,
-  maxYear,
-  minYear,
-  parseDate,
-  scheduleOf,
-  startAtOf,
-  totalMinutesOf,
-} from "./reservations.time.ts";
+import { isValidDuration, scheduleOf, totalMinutesOf } from "./reservations.util.ts";
 
 // loading: 처음 불러오는 중, failed: 받아 둔 목록 없이 실패, empty: 0건, ready: 고를 수 있음
 // 다시 불러오다 실패해도 받아 둔 목록이 있으면 ready·empty다
@@ -157,12 +150,11 @@ export function previewSchedule(
   if (rows.length === 0 || !known) return empty;
   if (totalMinutes === null) return { ...empty, outOfRange: true };
 
-  const dateText = values.date.trim();
-  const date = parseDate(dateText);
+  const date = kst.parseDate(values.date.trim());
   if (!date || date.year < minYear || date.year > maxYear) return empty;
-  const startAt = startAtOf(dateText, values.startTime);
+  const startAt = kst.parseDateTime(date.date(), values.startTime);
   if (startAt === null) return empty;
-  const schedule = scheduleOf(startAt, durations as number[]);
+  const schedule = scheduleOf(startAt.ms, durations as number[]);
   return { ...empty, schedule, outOfRange: schedule === null };
 }
 
@@ -227,7 +219,7 @@ export function reservationInputSchema(choices: ReservationChoices) {
       }
 
       const dateText = values.date.trim();
-      const date = parseDate(dateText);
+      const date = kst.parseDate(dateText);
       if (dateText === "") fail("date", "예약 날짜를 입력해주세요.");
       else if (!date) fail("date", "없는 날짜예요. 날짜를 다시 확인해주세요.");
       else if (date.year < minYear || date.year > maxYear) {
@@ -235,7 +227,7 @@ export function reservationInputSchema(choices: ReservationChoices) {
       }
 
       if (values.startTime === "") fail("startTime", "시작 시각을 입력해주세요.");
-      else if (!isValidTime(values.startTime)) {
+      else if (!kst.isTime(values.startTime)) {
         fail("startTime", "시작 시각을 분 단위로 다시 입력해주세요.");
       }
 
