@@ -2,9 +2,7 @@
   "version": "8",
   "dialect": "postgres",
   "id": "bb3ce922-7b28-4b32-a61c-56516472bcde",
-  "prevIds": [
-    "9b87388d-8788-4962-9384-d844c7f0342b"
-  ],
+  "prevIds": ["9b87388d-8788-4962-9384-d844c7f0342b"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -347,14 +345,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "reservationId"
-      ],
+      "columns": ["reservationId"],
       "schemaTo": "public",
       "tableTo": "reservations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "reservation_treatments_reservationId_reservations_id_fkey",
@@ -363,10 +357,7 @@
       "table": "reservation_treatments"
     },
     {
-      "columns": [
-        "reservationId",
-        "position"
-      ],
+      "columns": ["reservationId", "position"],
       "nameExplicit": false,
       "name": "reservation_treatments_pkey",
       "entityType": "pks",
@@ -374,9 +365,7 @@
       "table": "reservation_treatments"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "customers_pkey",
       "schema": "public",
@@ -384,9 +373,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "reservations_pkey",
       "schema": "public",
@@ -394,9 +381,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "treatments_pkey",
       "schema": "public",
@@ -405,10 +390,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "reservationId",
-        "treatmentId"
-      ],
+      "columns": ["reservationId", "treatmentId"],
       "nullsNotDistinct": false,
       "name": "reservation_treatments_reservation_treatment_unique",
       "entityType": "uniques",
@@ -417,9 +399,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "phone"
-      ],
+      "columns": ["phone"],
       "nullsNotDistinct": false,
       "name": "customers_phone_key",
       "schema": "public",

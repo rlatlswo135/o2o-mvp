@@ -1,6 +1,6 @@
 import type { Customer } from "@o2o/shared/contracts";
 
-import { customerInputSchema, customerUpdateSchema } from "@o2o/shared/contracts";
+import { customerInputSchema, customerUpdateInputSchema } from "@o2o/shared/contracts";
 import { ORPCError } from "@orpc/client";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -266,7 +266,7 @@ describe("고객 수정", () => {
 
   // 폼처럼 스키마로 다듬어 저장
   function update(input: { id: number; name: string; phone: string }) {
-    return updateCustomer(client, customerUpdateSchema.parse(input));
+    return updateCustomer(client, customerUpdateInputSchema.parse(input));
   }
 
   it("입력을 다듬어 보내고 목록의 같은 자리에서 고쳐진 고객으로 바꾼다", async () => {

@@ -8,7 +8,24 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import * as runtime from './runtime.mjs';
 import { claudeUsage, recordUsage } from './usage.mjs';
 
-const TOOL = /^[A-Za-z0-9_.:-]{1,80}$/, NATIVE = ['permission_prompt', 'elicitation_dialog'];
+const TOOL = /^[A-Za-z0-9_.:-]{1,80}$/ , NATIVE = ['permission_prompt', 'elicitation_dialog'];
+const hostPid = () => Number(process.env.C2H_HOST_PID) || process.ppid;
+const sessionOwner = input => typeof input.session_id === 'string' ? `${process.env.C2H_SESSION ?? `pid:${hostPid()}`}:${createHash('sha256').update(input.session_id).digest('hex').slice(0, 16)}` : null;
+function assertSession(root, role, input) {
+  const expected = sessionOwner(input);
+  if (expected && runtime.workSession(root, role)?.owner !== expected) throw new Error('Native role session changed. Do not act on an old prompt or delivery; rejoin the current session.');
+}
+function holdWork(root, role, state, note) {
+  const session = runtime.workSession(root, role);
+  if (!session) return;
+  for (const task of runtime.roleWork(root, role).obligations ?? []) if (task.owner === session.owner && ['running', 'offered'].includes(task.status))
+    runtime.releaseWork(root, role, task.key, { owner: session.owner, state, note });
+}
+function outputText(value) {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(outputText).join('\n');
+  return value && typeof value === 'object' ? ['stdout', 'output', 'text', 'content'].map(key => outputText(value[key])).join('\n') : '';
+}
 
 async function retry(operation, attempts = 40) {
   for (let attempt = 1; ; attempt++) {
@@ -20,11 +37,19 @@ async function retry(operation, attempts = 40) {
 export async function recordEvent(root, role, event, input, at = Date.now()) {
   const tool = TOOL.test(input.tool_name ?? '') ? input.tool_name : undefined, source = 'claude-hook';
   const set = (state, extra = {}) => runtime.setLive(root, role, state, { at, source, ...extra });
-  if (event === 'submit') {
+  if (event === 'session' || event === 'submit') {
+    const owner = sessionOwner(input);
+    if (owner) runtime.openWorkSession(root, role, { owner, pid: hostPid() });
+    if (event === 'session') return null;
     const launch = typeof input.prompt === 'string' && Boolean(process.env.C2H_BOOTSTRAP) && createHash('sha256').update(input.prompt).digest('hex') === process.env.C2H_BOOTSTRAP;
     try { runtime.setTurn(root, role, launch); } catch {}
     return set('working');
   }
+  if (event === 'end') {
+    const owner = sessionOwner(input);
+    return owner ? runtime.closeWorkSession(root, role, owner) : null;
+  }
+  assertSession(root, role, input);
   // 'ask' is the event name older executor settings used for AskUserQuestion.
   if (event === 'pre' || event === 'ask') {
     if (tool === 'AskUserQuestion') return set('native', { tool });
@@ -33,10 +58,22 @@ export async function recordEvent(root, role, event, input, at = Date.now()) {
     if (current?.state === 'native' && current.tool === tool && Math.abs(at - current.at) < 2000) return current;
     return set('working', { tool });
   }
-  if (event === 'post') return set('working', { tool });
+  if (event === 'post') {
+    const output = [input.tool_response, input.stdout, input.output].map(outputText).join('\n');
+    const marker = output.match(/\[c2h work ([^\s\]]+) ([^\s\]]+)\]/);
+    if (marker && tool === 'Bash' && /c2h\.mjs['"]?\s+(?:next|work-next)\s/.test(input.tool_input?.command ?? ''))
+      runtime.acceptWork(root, role, marker[1], marker[2], sessionOwner(input) ?? undefined);
+    if (tool === 'AskUserQuestion' && (/cancelled|canceled|dismissed|user rejected|사용자.*취소/i.test(output) || input.tool_response?.answers && !Object.keys(input.tool_response.answers).length))
+      holdWork(root, role, 'waiting_user', 'Native question was cancelled; wait for explicit user resume.');
+    return set('working', { tool });
+  }
   if (event === 'permission') return set('native', { tool });
   if (event === 'notify') return NATIVE.includes(input.notification_type) ? set('native') : input.notification_type === 'idle_prompt' ? set('idle') : null;
-  if (event === 'failure') return set('failed');
+  if (event === 'tool-failure') {
+    holdWork(root, role, 'waiting_user', 'Tool permission or execution failed; explicit resume must recheck it.');
+    return set('native', { tool });
+  }
+  if (event === 'failure') { holdWork(root, role, 'ready', 'Provider response failed; reuse the same unfinished scope.'); return set('failed'); }
   if (event === 'stop') {
     const record = set('idle'), text = input.last_assistant_message;
     let launch = false; try { launch = runtime.bootstrapTurn(root, role); } catch {}
@@ -91,7 +128,12 @@ async function main() {
     else if (event === 'waiter') await waiterHook(root, role, input);
     else if (event === 'statusline') process.stdout.write(statusLine(root, role, input, Date.now()) + '\n');
     else await recordEvent(root, role, event, input, at);
-  } catch (error) { process.stderr.write(`c2h hook ${event}: ${error.message}\n`); }
+  } catch (error) {
+    process.stderr.write(`c2h hook ${event}: ${error.message}\n`);
+    if (['pre', 'post', 'submit'].includes(event)) process.stdout.write(JSON.stringify(event === 'pre'
+      ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: error.message } }
+      : { decision: 'block', reason: error.message }) + '\n');
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) await main();

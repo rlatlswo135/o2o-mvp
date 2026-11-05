@@ -7,6 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { ROLES, readLayout } from './layout.mjs';
 import { interviewRecord, verificationContract, validateVerification, qaResults } from './qa-contract.mjs';
 import { sourceManifest, diffManifest, copyProduct } from './evidence.mjs';
+import { deriveWorkflow, deriveWork, workPrompt } from './workflow.mjs';
 export { ROLES };
 const assistRole = role => role === 'designer' || role === 'qa' || role === 'refactor';
 const QUALITY_ROLES = ['reviewer', 'designer', 'qa', 'refactor'];
@@ -92,6 +93,50 @@ function atomic(root, file, data) {
   } finally { if (exists(temp)) fs.unlinkSync(temp); }
 }
 const encode = data => JSON.stringify(data, null, 2) + '\n';
+const intentFile = root => safe(root, '.harness/transition.json');
+
+// A committed harness-only write intent survives process death; divergent files are never overwritten.
+function applyIntent(root, intent) {
+  check(intent.version === 1 && Array.isArray(intent.files) && intent.files.length > 0 && intent.files.length <= 16, 'Invalid workflow write intent.');
+  check(object(intent.source) && SNAPSHOTS.includes(intent.source.fingerprint) && matches(HASH, intent.source.baseline), 'Write intent lacks its source guard.');
+  check(Array.isArray(intent.scopes) && intent.scopes.length > 0 && intent.scopes.length <= 2, 'Write intent lacks its scope guard.');
+  for (const scope of intent.scopes) check(object(scope) && matches(STORY, scope.story) && matches(HASH, scope.hash) && storyHash(root, scope.story) === scope.hash, 'Story scope changed after an interrupted transition; do not reconstruct approval.');
+  check(sourceFingerprint(root, intent.source.fingerprint) === intent.source.baseline, 'Source changed after an interrupted transition; reconcile cannot invent new verification or approval.');
+  const files = intent.files.map(item => {
+    check(object(item) && typeof item.path === 'string' && item.path.startsWith('.harness/') && item.path !== '.harness/transition.json' && typeof item.content === 'string' && (item.before === null || matches(HASH, item.before)) && matches(HASH, item.hash), 'Invalid workflow write target.');
+    check(/^\.harness\/(?:active\.json|inbox\/(?:planner|executor|reviewer|designer|qa|refactor)\/\d{8}T\d{12}Z-[a-f0-9]{12}\.json|stories\/[A-Za-z0-9][A-Za-z0-9_-]*\/(?:records\/)?(?:checkpoint\.md|design-direction\.json))$/.test(item.path), 'Unexpected workflow intent target.');
+    const file = safe(root, item.path), data = Buffer.from(item.content, 'base64');
+    check(data.length <= MAX_FILE && hash(data) === item.hash, 'Workflow write content changed.');
+    const current = exists(file) ? hash(bytes(file)) : null;
+    check(current === item.before || current === item.hash, `Interrupted workflow file diverged: ${item.path}. Inspect the recorded intent; no approval or report was regenerated.`);
+    return { file, data, same: current === item.hash };
+  });
+  const next = intent.files.find(item => item.path === '.harness/active.json');
+  if (next) {
+    const state = JSON.parse(Buffer.from(next.content, 'base64'));
+    check(object(state) && matches(STORY, state.story) && matches(HASH, state.story_hash) && storyHash(root, state.story) === state.story_hash, 'Checkpoint scope changed after an interrupted transition.');
+    if (state.approval) {
+      if (state.design) validateDesign(root, state.story, state.design);
+      if (state.verification) validateVerification(root, state.story, state.verification);
+    }
+  }
+  for (const { file, data, same } of files) if (!same) atomic(root, file, data);
+  check(sourceFingerprint(root, intent.source.fingerprint) === intent.source.baseline && intent.scopes.every(scope => storyHash(root, scope.story) === scope.hash), 'Source or scope changed while committing workflow state; the intent remains blocked for inspection.');
+  fs.unlinkSync(intentFile(root)); syncDirectory(safe(root, '.harness'));
+}
+function commitFiles(root, files) {
+  check(!exists(intentFile(root)), 'Interrupted workflow transition; run reconcile before another write.');
+  const fingerprint = currentFormat();
+  const intent = { version: 1, source: { fingerprint, baseline: sourceFingerprint(root, fingerprint) }, files: files.map(([name, content]) => {
+    const file = safe(root, name), data = Buffer.from(content);
+    return { path: path.relative(root, file).split(path.sep).join('/'), before: exists(file) ? hash(bytes(file)) : null, content: data.toString('base64'), hash: hash(data) };
+  }) };
+  const stories = new Set(intent.files.map(item => item.path.match(/^\.harness\/stories\/([^/]+)\//)?.[1]).filter(Boolean));
+  intent.scopes = [...stories].map(story => ({ story, hash: storyHash(root, story) }));
+  check(new Set(intent.files.map(item => item.path)).size === intent.files.length, 'Duplicate workflow write target.');
+  atomic(root, intentFile(root), encode(intent));
+  applyIntent(root, intent);
+}
 
 // The lock names its writer. A lock whose writer process is gone (killed mid-write) is stale; a live writer, or a lock
 // just created and not yet written, is busy. pid reuse can make a stale lock look busy, never the reverse.
@@ -107,7 +152,7 @@ function lockOwner(root) {
 }
 const staleLock = lock => `Stale protocol lock: its writer${lock.pid ? ` (pid ${lock.pid})` : ''} stopped mid-write. Remove it with: node .harness/bin/c2h.mjs unlock --approved — then resume; an interrupted write shows up as a blocked record.`;
 
-function transaction(root, operation) {
+function transaction(root, operation, { allowIntent = false } = {}) {
   root = projectRoot(root);
   const file = safe(root, '.harness/.runtime.lock');
   // ponytail: one project lock; split only if protocol contention becomes measurable.
@@ -123,6 +168,7 @@ function transaction(root, operation) {
   try {
     fs.writeFileSync(fd, encode({ pid: process.pid, created: new Date().toISOString() }));
     fs.fsyncSync(fd);
+    check(allowIntent || !exists(intentFile(root)), 'Interrupted workflow write intent. Run reconcile before another protocol command.');
     return operation(root);
   } finally { fs.closeSync(fd); fs.unlinkSync(file); }
 }
@@ -334,6 +380,7 @@ function envelope(data, file) {
   if (data.consolidation_required !== undefined) check(kind === 'planning_request' && data.consolidation_required === true, 'Invalid story consolidation requirement.');
   // Earlier versions sealed with an object ({hash}); such stories still count as finished and get the same cleanup.
   if (data.compacted !== undefined) check(kind === 'planning_request' && (data.compacted === true || object(data.compacted)), 'Invalid compacted completion envelope.');
+  if (data.origin_checkpoint !== undefined) check(kind === 'message' && data.sender === 'designer' && data.target === 'planner' && matches(HASH, data.origin_checkpoint), 'Invalid planning feedback checkpoint reference.');
   if (data.reply_to !== undefined) idCheck(data.reply_to);
   if (data.baseline !== undefined) check(matches(HASH, data.baseline), 'Invalid baseline.');
   if (data.fingerprint !== undefined) check(FORMATS.includes(data.fingerprint), 'Unknown source fingerprint format.');
@@ -374,11 +421,12 @@ function locate(root, role, id) {
   return data;
 }
 
+function newMessage(sender, target, story, message, options = {}) {
+  return envelope({ ...options, id: freshId(), sender, target, story, message, kind: options.kind ?? 'message' });
+}
+const messagePath = data => `.harness/inbox/${data.target}/${data.id}.json`;
 function deliver(root, sender, target, story, message, options = {}) {
-  roleCheck(sender); roleCheck(target); storyCheck(story);
-  const stamp = new Date().toISOString().replace(/[-:.]/g, '').replace('Z', '000Z');
-  const id = `${stamp}-${randomBytes(6).toString('hex')}`;
-  const data = envelope({ ...options, id, sender, target, story, message, kind: options.kind ?? 'message' });
+  const data = newMessage(sender, target, story, message, options), id = data.id;
   const folder = safe(root, '.harness/inbox', target);
   check(fs.statSync(folder).isDirectory(), 'Run setup first.');
   const encoded = encode(data); check(Buffer.byteLength(encoded) <= MAX_FILE, 'Message envelope too large.');
@@ -403,7 +451,16 @@ export function send(root, sender, target, story, message, options = {}) {
   }
   check(!options.kind || options.kind === 'message', 'Use approved handoff for implementation requests.');
   check(Object.keys(options).every(key => ['kind', 'reply_to', 'baseline'].includes(key)), 'Unsupported send option.');
-  return transaction(root, root => { subrequest(root, sender, target, story, message); return deliver(root, sender, target, story, message, options); });
+  return transaction(root, root => {
+    subrequest(root, sender, target, story, message);
+    let body; try { body = JSON.parse(message); } catch {}
+    if (object(body) && SUBREQUESTS[body.type]) {
+      const previous = allMessages(root, target).find(item => item.kind === 'message' && item.sender === sender && item.story === story && item.message === message && item.reply_to === options.reply_to);
+      if (previous) return previous.id;
+    }
+    const metadata = body?.type === 'c2h_plan_feedback' ? { origin_checkpoint: hash(encode(loadState(root))) } : {};
+    return deliver(root, sender, target, story, message, { ...options, ...metadata });
+  });
 }
 
 // Typed role requests travel as JSON inside plain messages and the Pi extension acts on them, so their shape and story
@@ -555,6 +612,11 @@ function loadState(root) {
   if (state.phase !== 'planning' || state.approval) pinned(() => check(storyHash(root, state.story) === state.story_hash, 'Story scope revision changed after approval.'));
   if (state.design) pinned(() => validateDesign(root, state.story, state.design));
   if (state.verification) pinned(() => { check(state.verification.story_hash === state.story_hash, 'QA contract scope changed.'); validateVerification(root, state.story, state.verification); });
+  if (state.quality_roles !== undefined) {
+    check(Array.isArray(state.quality_roles) && new Set(state.quality_roles).size === state.quality_roles.length && state.quality_roles.every(role => QUALITY_ROLES.includes(role)), 'Invalid approved quality roles.');
+    check(!state.verification || state.quality_roles.includes('qa'), 'Approved QA contract requires the QA role.');
+    check(!state.quality_roles.includes('designer') || state.design, 'Approved designer checks require a design contract.');
+  }
   if (state.approval) {
     check(object(state.approval) && ['handoff', 'implementation', 'fix'].includes(state.approval.kind), 'Invalid recorded approval.');
     check(state.approval.story_hash === state.story_hash, 'Recorded approval is for a different story revision.');
@@ -563,6 +625,7 @@ function loadState(root) {
       check(message.kind === 'implementation_request' && message.story === state.story, "Approval message is not this story's implementation request.");
       check(message.story_hash === state.story_hash, 'Approval message pins a different story revision.');
       check(JSON.stringify(message.design) === JSON.stringify(state.design), 'Approval message pins a different design.');
+      check(JSON.stringify(message.quality_roles) === JSON.stringify(state.quality_roles), 'Approval message pins different quality roles.');
       check(JSON.stringify(message.verification) === JSON.stringify(state.qa_amendments?.[0]?.from ?? state.verification), 'Approval message pins a different QA contract.');
     }
   }
@@ -597,13 +660,18 @@ function validateCompletion(root, state) {
   check(state.phase === 'done' && object(state.completion), 'Invalid completion record.');
   check(matches(HASH, state.completion.baseline) && (state.completion.fingerprint === undefined || SNAPSHOTS.includes(state.completion.fingerprint)), 'Completion record lacks a valid source baseline.');
   // 'user_verified_fixes' is the older name of 'verified_fixes' (completed after verified fixes without a fresh review).
-  check(['reviewed', 'verified_fixes', 'user_verified_fixes'].includes(state.completion.basis), 'Unknown completion basis.');
+  check(['reviewed', 'verified_fixes', 'user_verified_fixes', 'executor_verified'].includes(state.completion.basis), 'Unknown completion basis.');
   check(state.completion.consolidation_required === undefined || state.completion.consolidation_required === true, 'Invalid story consolidation requirement.');
   const message = locate(root, 'planner', state.completion.message_id);
   check((message.consolidation_required === true) === (state.completion.consolidation_required === true), 'Planning request consolidation requirement contradicts completion checkpoint.');
   check(message.kind === 'planning_request' && message.story === state.story, "Completion message is not this story's planning request.");
   check(message.story_hash === state.story_hash, 'Completion message pins a different story revision.');
   check(message.baseline === state.completion.baseline && message.fingerprint === completionFormat(state.completion), 'Completion message pins a different source baseline.');
+  if (state.completion.basis === 'executor_verified') {
+    check(state.approval && state.quality_roles && qualityParticipants(root, state).every(role => role === 'refactor') && !state.verification, 'Executor-only completion cannot skip approved correctness checks.');
+    check(state.verified_baseline === state.completion.baseline && verifiedFormat(state) === completionFormat(state.completion), 'Executor completion lacks matching implementation verification.');
+    if (!state.request_id) { check(!state.quality_roles.length, 'Pending advisory check prevents completion.'); return; }
+  }
   const request = reviewRequest(root, state.request_id), response = responses(root, request)[0];
   check(request.story === state.story && !request.cancelled, 'Completed review request is missing or cancelled.');
   check(response, 'Completed review has no result.');
@@ -663,7 +731,7 @@ export function restoreApproved(root, story, { approved = false } = {}) {
 }
 
 // A finished story keeps only result.md: what was done, in the planner's words. The planner's completion message, marked
-// compacted, is the seal; every other story file, message, baseline and verification copy is removed with the story.
+// compacted, is the seal; closed workflow messages, baselines and verification copies go with the story.
 // result.md ends with the seal too, so the record travels with the story through Git while the inbox stays machine-local
 // (a clone has no planner message). Stories sealed before that carry only the message until setup marks their result.md.
 const SEAL = /\n<!-- c2h:sealed (\d{8}T\d{12}Z-[a-f0-9]{12}) -->\n$/;
@@ -693,7 +761,7 @@ export function markSealedResults(root) {
   return marked;
 }
 const finished = state => ({ story: state.story, story_hash: state.story_hash, phase: 'done', note: state.note,
-  completion: { message_id: state.completion.message_id, consolidation_required: true }, updated: state.updated });
+  completion: { message_id: state.completion.message_id, consolidation_required: true, ...(state.completion.basis === 'executor_verified' ? { basis: 'executor_verified' } : {}) }, updated: state.updated });
 
 // A free-text note naming a sealed story (one sent after the seal, such as a next discussion handed to the planner) is
 // new work for its reader, not leftover cleanup: it neither holds the next story or a refactor nor is deleted unread.
@@ -707,7 +775,7 @@ function clearStory(root, story, completionId) {
   const active = safe(root, '.harness/active.json');
   if (exists(active) && json(active).story === story) atomic(root, active, encode(finished(json(active))));
   const owned = ROLES.flatMap(role => allMessages(root, role).filter(item => item.story === story && item.id !== completionId).map(item => ({ role, item })))
-    .filter(({ role, item }) => !plainNote(item) || !exists(safe(root, '.harness/inbox', role, `${item.id}.json`)));
+    .filter(({ role, item }) => !plainNote(item) || !exists(safe(root, '.harness/inbox', role, `${item.id}.json`)) && !workRecords(root, role).some(record => record.kind === 'discussion' && record.id === item.id && record.status !== 'done'));
   check(owned.every(({ role, item }) => !exists(safe(root, '.harness/inbox', role, `${item.id}.json`))), 'Unresolved pending role messages prevent consolidation.');
   for (const { item } of owned) if (item.kind === 'review_request') {
     if (matches(/^\.harness\/baselines\/[A-Za-z0-9_-]+\.json$/, item.source_manifest?.file)) fs.rmSync(safe(root, item.source_manifest.file), { force: true });
@@ -718,6 +786,7 @@ function clearStory(root, story, completionId) {
   const folder = storyDirectory(root, story);
   for (const name of fs.readdirSync(folder)) if (name !== 'result.md') fs.rmSync(safe(root, folder, name), { recursive: true, force: true });
   syncDirectory(folder);
+  for (const role of ROLES) for (const record of workRecords(root, role)) if (record.story === story && record.kind !== 'discussion') fs.unlinkSync(workRecordFile(root, role, record.key));
   const index = safe(root, '.harness/stories/index.md');
   if (exists(index)) atomic(root, index, bytes(index).toString().replaceAll(`${story}/story.md`, `${story}/result.md`));
 }
@@ -729,7 +798,7 @@ export function compactStory(root, story, { summary, approved = false, expectedS
     if (sealed) { clearStory(root, story, sealed.id); return { story, result }; }
     const state = loadState(root);
     check(state?.story === story && state.phase === 'done' && state.completion?.consolidation_required, 'Only the active completed DONE story can be consolidated.');
-    // Plain notes about the finished story ask nothing the protocol can still do; they close with it. Typed requests block.
+    // Unfinished discussions survive source-record cleanup; only typed workflow requests hold the seal.
     const pending = ROLES.flatMap(role => messages(root, role).filter(item => item.story === story && item.id !== state.completion.message_id).map(item => ({ role, item })));
     const notes = pending.filter(({ item }) => plainNote(item));
     check(!openReviews(root).length && notes.length === pending.length, 'Unresolved pending role messages prevent consolidation.');
@@ -738,15 +807,13 @@ export function compactStory(root, story, { summary, approved = false, expectedS
     if (expectedSummaryHash !== undefined) check(matches(HASH, expectedSummaryHash) && expectedSummaryHash === summaryHash, 'Completion summary changed while choosing; ask again.');
     const text = bytes(safe(root, summaryFile)).toString(); textCheck(text, 4000, 'Completion summary');
     check(/^# \S/.test(text) && text.split('\n## 한 일\n')[1]?.split('\n## ')[0].trim(), 'Completion summary needs a "# SNNN — title" line and a "## 한 일" section.');
-    // Before the seal: a sealed retry goes straight to clearStory, which refuses any message still pending.
-    for (const { role, item } of notes) archive(root, role, item.id);
     // result.md with its seal line, then the planner message seal: each step leaves a state a retry can finish.
     const message = locate(root, 'planner', state.completion.message_id), folder = safe(root, '.harness/inbox/planner'), waiting = safe(root, folder, `${message.id}.json`);
-    const stats = { rounds: reviewRounds(root, story), max: MAX_REVIEW_ROUNDS, qa: Boolean(state.verification) };
+    const stats = { rounds: reviewRounds(root, story), max: MAX_REVIEW_ROUNDS, qa: Boolean(state.verification), ...(state.completion.basis === 'executor_verified' ? { independent: false } : {}) };
     atomic(root, safe(root, result), `${text.trim()}\n\n<!-- c2h:stats ${JSON.stringify(stats)} -->\n${sealLine(message.id)}`);
     atomic(root, exists(waiting) ? waiting : safe(root, folder, 'processed', `${message.id}.json`), encode({ ...message, compacted: true }));
     clearStory(root, story, message.id);
-    return { story, result, ...(notes.length ? { closed: notes.map(({ role, item }) => ({ role, id: item.id })) } : {}) };
+    return { story, result, ...(notes.length ? { pending_discussions: notes.map(({ role, item }) => ({ role, id: item.id })) } : {}) };
   });
 }
 
@@ -761,10 +828,10 @@ export function storyOutcome(root, story) {
   try { stats = JSON.parse(text.match(STATS)?.[1] ?? 'null'); } catch {}
   if (!stats && !text) {
     const state = loadState(root);
-    stats = { rounds: reviewRounds(root, story), max: MAX_REVIEW_ROUNDS, qa: Boolean(state?.story === story && state.verification) };
+    stats = { rounds: reviewRounds(root, story), max: MAX_REVIEW_ROUNDS, qa: Boolean(state?.story === story && state.verification), ...(state?.completion?.basis === 'executor_verified' ? { independent: false } : {}) };
   }
   return { name: heading(text) ?? (exists(main) ? heading(bytes(main).toString()) : null), title: heading(text), done,
-    rounds: Number.isInteger(stats?.rounds) ? stats.rounds : null, max: Number.isInteger(stats?.max) ? stats.max : MAX_REVIEW_ROUNDS, qa: stats?.qa === true };
+    rounds: Number.isInteger(stats?.rounds) ? stats.rounds : null, max: Number.isInteger(stats?.max) ? stats.max : MAX_REVIEW_ROUNDS, qa: stats?.qa === true, ...(stats?.independent === false ? { independent: false } : {}) };
 }
 
 function completionCheckpoint(root, story) {
@@ -787,10 +854,12 @@ function recoverCompletion(root, story) {
   check(before.story === story && ['implementation_done', 'review_decision'].includes(before.phase) && encode(expected) === encode(saved), 'Completion recovery does not match the preceding checkpoint.');
   check(sourceFingerprint(root, completionFormat(saved.completion)) === saved.completion.baseline, 'Source changed since recorded completion; do not recover automatically.');
   const manual = before.phase === 'implementation_done';
-  check(!manual || before.approval?.kind === 'fix' && before.verified_baseline === saved.completion.baseline &&
+  check(!manual || (before.approval?.kind === 'fix' || saved.completion.basis === 'executor_verified') && before.verified_baseline === saved.completion.baseline &&
     verifiedFormat(before) === completionFormat(saved.completion), 'Missing verified fixes for completion recovery.');
-  const request = reviewRequest(root, saved.request_id);
-  verifyResponse(root, request, responses(root, request)[0], !manual);
+  if (saved.request_id) {
+    const request = reviewRequest(root, saved.request_id);
+    verifyResponse(root, request, responses(root, request)[0], !manual);
+  }
   check(!openReviews(root).length && !messages(root, 'executor').some(data => data.story === story && ['implementation_request', 'review_result'].includes(data.kind)), 'Unresolved messages block completion recovery.');
   return saveState(root, saved);
 }
@@ -799,12 +868,17 @@ function guardStory(state, story) {
   check(!state || state.story === story || state.phase === 'done', 'Another active story must be resolved first.');
 }
 const completionChoices = state => state.approval?.kind === 'fix' && ['implementation_done', 'review_decision'].includes(state.phase);
-function saveState(root, state, updated = new Date().toISOString()) {
+// New approvals pin the team; legacy requests retain their original participants.
+export function qualityParticipants(root, state, { recheck = false } = {}) {
+  const selected = state.quality_roles ?? (state.request_id ? reviewRequest(root, state.request_id).checks : undefined) ?? readLayout(root).roles;
+  return QUALITY_ROLES.filter(role => (selected.includes(role) || role === 'qa' && state.verification) &&
+    (role !== 'designer' || state.design) && (role !== 'refactor' || !recheck && !state.request_id));
+}
+function saveState(root, state, updated = new Date().toISOString(), effects = []) {
   const saved = { ...state, updated };
   const markdown = checkpointText(saved), encoded = encode(saved);
   check(Buffer.byteLength(markdown) <= MAX_FILE && Buffer.byteLength(encoded) <= MAX_FILE, 'Checkpoint record too large.');
-  atomic(root, recordFile(root, state.story, 'checkpoint.md'), markdown);
-  atomic(root, safe(root, '.harness/active.json'), encoded);
+  commitFiles(root, [...effects, [recordFile(root, state.story, 'checkpoint.md'), markdown], ['.harness/active.json', encoded]]);
   return saved;
 }
 function baseState(root, story, state) {
@@ -865,7 +939,8 @@ export function designReady(root, story, { design, preview, needsPlanning = fals
     check(direction.story_hash === story_hash, 'Choose design direction for current story revision first.');
     textCheck(direction.choice, 200, 'Design choice'); textCheck(direction.note, 4000, 'Design note');
     const d = designAsset(root, story, design, '.md'), p = designAsset(root, story, preview, '.html');
-    const record = { story_hash, direction_hash: hash(JSON.stringify(direction)), needs_planning: needsPlanning, design: { ...d, preview: p.file, preview_hash: p.hash } };
+    const request = allMessages(root, 'designer').filter(item => item.story === story && messageBody(item)?.type === 'c2h_design_request' && messageBody(item).story_hash === story_hash).sort((a, b) => b.id.localeCompare(a.id))[0];
+    const record = { story_hash, direction_hash: hash(JSON.stringify(direction)), needs_planning: needsPlanning, design: { ...d, preview: p.file, preview_hash: p.hash }, ...(request ? { request_id: request.id } : {}) };
     atomic(root, recordFile(root, story, 'design-ready.json'), encode(record));
     return designStatus(root, story);
   });
@@ -881,6 +956,7 @@ export function designStatus(root, story) {
     if (!result.direction || result.ready.direction_hash !== hash(JSON.stringify(result.direction))) delete result.ready;
     else {
       check(typeof result.ready.needs_planning === 'boolean', 'Invalid requirements-review flag.');
+      if (result.ready.request_id !== undefined) idCheck(result.ready.request_id);
       // The designer revises design.md/preview.html in place; an edit after readiness reopens the design instead of failing.
       try { validateDesign(root, story, result.ready.design); } catch { delete result.ready; result.stale = true; }
     }
@@ -1059,14 +1135,19 @@ export function handoff(root, story, { approved = false, expectedStoryHash, desi
     // New UI approvals pin browser QA; existing approvals return above without retroactive requirements.
     const verification = qaStatus(root, story);
     if (verification) check(expectedQaHash === verification.hash, 'QA contract changed or was not included in scope approval; present it and ask again.');
-    if (pinned) check(verification?.browser === true && readLayout(root).roles.includes('qa'), 'Composite design handoff requires a browser QA criterion and selected QA role.');
-    const id = pending[0]?.id ?? deliver(root, sender, 'executor', story, '명시적으로 승인된 스토리 revision만 구현한다. 사용자 응답과 선택창은 한국어를 유지한다.', { kind: 'implementation_request', approved: true, story_hash: state.story_hash, ...(pinned ? { design: pinned } : {}), ...(verification ? { verification } : {}) });
+    const selected = readLayout(root).roles;
+    if (verification) check(selected.includes('qa'), 'Approved QA contract requires a selected QA role.');
+    if (pinned && selected.includes('qa')) check(verification?.browser === true, 'Composite design handoff requires a browser QA criterion and selected QA role.');
+    const quality_roles = QUALITY_ROLES.filter(role => selected.includes(role) && (role !== 'designer' || pinned));
+    const message = pending[0] ?? newMessage(sender, 'executor', story, '명시적으로 승인된 스토리 revision만 구현한다. 사용자 응답과 선택창은 한국어를 유지한다.', { kind: 'implementation_request', approved: true, story_hash: state.story_hash, quality_roles, ...(pinned ? { design: pinned } : {}), ...(verification ? { verification } : {}) });
+    const id = message.id;
     check(!pending[0] || pending[0].sender === sender && JSON.stringify(pending[0].design) === JSON.stringify(pinned), 'Pending handoff has a different approved design scope.');
     check(!pending[0] || JSON.stringify(pending[0].verification) === JSON.stringify(verification), 'Pending handoff has different QA verification scope.');
-    state = { ...state, ...(pinned ? { design: pinned } : {}), ...(verification ? { verification } : {}), phase: 'implementing', note: `User explicitly approved ${sender} handoff.`, approval: { kind: 'handoff', story_hash: state.story_hash, message_id: id } };
+    check(!pending[0] || JSON.stringify(pending[0].quality_roles) === JSON.stringify(quality_roles), 'Pending handoff has different quality roles.');
+    state = { ...state, quality_roles, ...(pinned ? { design: pinned } : {}), ...(verification ? { verification } : {}), phase: 'implementing', note: `User explicitly approved ${sender} handoff.`, approval: { kind: 'handoff', story_hash: state.story_hash, message_id: id } };
     saveApproved(root, state);
     state.approved_source ??= approvalSource(root, story);
-    saveState(root, state);
+    saveState(root, state, undefined, pending.length ? [] : [[messagePath(message), encode(message)]]);
     return id;
   });
 }
@@ -1093,7 +1174,7 @@ export function setRefactorPrompt(root, filename) {
 }
 // An approved refactor ends only after the reviewer has read it: the review of the change plus one recheck of its fixes.
 const MAX_REFACTOR_REVIEWS = 2;
-const TASK_PHASES = ['proposed', 'approved', 'executing', 'reviewing', 'reviewed', 'fixing', 'done'];
+const TASK_PHASES = ['proposed', 'approved', 'executing', 'reviewing', 'reviewed', 'fixing', 'verified', 'done'];
 // The executor's report states the same checks run before and after the change, so a failure can be told from an old one.
 const VERIFIED_SECTIONS = [/^##\s*수정 전 검증/m, /^##\s*수정 후 검증/m];
 function refactorTask(root) {
@@ -1103,6 +1184,8 @@ function refactorTask(root) {
   // Tasks saved before reviews held their verified report in an optional intent check; the reviewer takes it over.
   if (task.phase === 'checking') task = { ...task, phase: 'reviewing', round: 1 };
   check(TASK_PHASES.includes(task.phase), 'Invalid independent refactor phase.');
+  check(task.review_required === undefined || typeof task.review_required === 'boolean', 'Invalid independent refactor review policy.');
+  check(task.phase !== 'verified' || task.review_required === false && task.round === 0 && matches(HASH, task.verified_baseline), 'Only reviewer-free refactors can finish with executor verification.');
   check(matches(HASH, task.proposal_hash) && matches(HASH, task.baseline) && matches(HASH, task.prompt_hash) && SNAPSHOTS.includes(task.fingerprint), 'Invalid independent refactor approval.');
   if (task.delivery_id !== undefined) idCheck(task.delivery_id);
   if (task.phase === 'done') return task;
@@ -1110,7 +1193,7 @@ function refactorTask(root) {
   if (task.phase !== 'proposed') check(matches(ID, task.delivery_id), 'Refactor handoff lacks its delivery ID.');
   if (['reviewing', 'reviewed', 'fixing'].includes(task.phase)) check(Number.isInteger(task.round) && task.round >= 1 && task.round <= MAX_REFACTOR_REVIEWS && matches(HASH, task.verified_baseline), 'Invalid independent refactor review round.');
   // The executor rewrites its report while fixing; the reviewed version is pinned until then.
-  if (['reviewing', 'reviewed'].includes(task.phase)) check(taskReport(root, task, task.report)[1] === task.report_hash, 'Refactor implementation evidence changed.');
+  if (['reviewing', 'reviewed', 'verified'].includes(task.phase)) check(taskReport(root, task, task.report)[1] === task.report_hash, 'Refactor implementation evidence changed.');
   if (['reviewed', 'fixing'].includes(task.phase))
     check(Array.isArray(task.reviews) && task.reviews.length === task.round && task.reviews.every(item => taskReport(root, task, item.report)[1] === item.hash), 'Sent refactor review changed.');
   return task;
@@ -1160,7 +1243,7 @@ export function refactorPropose(root, summary) {
     const content = bytes(file); textCheck(content.toString(), 16000, 'Refactor proposal');
     const id = previous?.id ?? freshId(), proposal = `.harness/refactor/${id}/proposal.md`, fingerprint = currentFormat();
     atomic(root, safe(root, proposal), content);
-    return saveRefactor(root, { id, phase: 'proposed', proposal, proposal_hash: hash(content), baseline: sourceFingerprint(root, fingerprint), fingerprint, prompt_hash: hash(refactorPrompt(root)) });
+    return saveRefactor(root, { id, phase: 'proposed', proposal, proposal_hash: hash(content), baseline: sourceFingerprint(root, fingerprint), fingerprint, prompt_hash: hash(refactorPrompt(root)), review_required: readLayout(root).roles.includes('reviewer') });
   });
 }
 export function refactorApprove(root, id, { approved = false, proposalHash, baseline } = {}) {
@@ -1173,6 +1256,7 @@ export function refactorApprove(root, id, { approved = false, proposalHash, base
     check(task.proposal_hash === proposalHash && task.baseline === baseline, 'Refactor proposal changed while choosing; ask again.');
     check(sourceFingerprint(root, task.fingerprint) === task.baseline, 'Source changed since the refactor proposal; discuss and approve a fresh proposal.');
     check(hash(refactorPrompt(root)) === task.prompt_hash, 'Refactor viewpoint changed; prepare a fresh proposal.');
+    check((task.review_required !== false) === readLayout(root).roles.includes('reviewer'), 'Refactor review policy changed; prepare and approve a fresh proposal.');
     // Per-path source at approval: the reviewer's `refactor-changes ID` base. Diagnostic only, like a story's approval source.
     const approved_source = saveSourceManifest(root, task.baseline, `refactor-${id}`, task.fingerprint);
     return saveRefactor(root, { ...task, phase: 'approved', approved_source, delivery_id: freshId() });
@@ -1198,7 +1282,8 @@ function clearRefactor(root, task) {
   const baselines = safe(root, '.harness/baselines');
   if (exists(baselines)) for (const name of fs.readdirSync(baselines)) if (name.startsWith(`refactor-${task.id}`)) fs.unlinkSync(path.join(baselines, name));
   fs.unlinkSync(refactorFile(root)); syncDirectory(path.dirname(refactorFile(root)));
-  return { id: task.id, closed: true };
+  for (const role of ROLES) for (const record of workRecords(root, role)) if (record.request_id === task.id && record.kind.startsWith('refactor_')) fs.unlinkSync(workRecordFile(root, role, record.key));
+  return { id: task.id, closed: true, ...(task.review_required === false ? { reviewed: false } : {}) };
 }
 // The executor's verified change (first or fixed) goes to the reviewer; the source is pinned until the review arrives.
 export function refactorFinish(root, id, summary) {
@@ -1210,9 +1295,9 @@ export function refactorFinish(root, id, summary) {
     settledStory(root);
     const [report, report_hash] = taskReport(root, task, summary);
     check(VERIFIED_SECTIONS.every(pattern => pattern.test(bytes(safe(root, report)).toString())), "Refactor report needs '## 수정 전 검증' and '## 수정 후 검증' with the same checks run before and after the change.");
-    const round = (task.round ?? 0) + 1, verified_baseline = sourceFingerprint(root, task.fingerprint);
+    const round = task.review_required === false ? 0 : (task.round ?? 0) + 1, verified_baseline = sourceFingerprint(root, task.fingerprint);
     const verified_source = saveSourceManifest(root, verified_baseline, `refactor-${id}-${round}`, task.fingerprint);
-    return saveRefactor(root, { ...task, phase: 'reviewing', round, report, report_hash, verified_baseline, verified_source, delivery_id: freshId() });
+    return saveRefactor(root, { ...task, phase: task.review_required === false ? 'verified' : 'reviewing', round, report, report_hash, verified_baseline, verified_source, delivery_id: freshId() });
   });
 }
 // Reviewer: the report is immutable once sent; the executor then fixes against the proposal or finishes.
@@ -1245,7 +1330,7 @@ export function refactorDone(root, id) {
   idCheck(id);
   return transaction(root, root => {
     const task = refactorTask(root);
-    check(task?.id === id && task.phase === 'reviewed', 'Only a reviewed independent refactor can finish.');
+    check(task?.id === id && (task.phase === 'reviewed' || task.phase === 'verified' && task.review_required === false), 'Only a reviewed or explicitly reviewer-free verified independent refactor can finish.');
     check(sourceFingerprint(root, task.fingerprint) === task.verified_baseline, 'Source changed after the reviewed version; fix, verify and review it again.');
     return clearRefactor(root, task);
   });
@@ -1302,10 +1387,12 @@ export function requestReview(root, story, expected = {}) {
       check(!messages(root, 'executor').some(data => data.id === response.id), 'Brief and acknowledge the previous result before another review.');
     }
     check(!state.phase || state.phase === 'implementation_done' || expected.again && completionChoices(state), 'Complete implementation before requesting review.');
+    if (state.quality_roles && !expected.checks) check(qualityParticipants(root, state).includes('reviewer') && qualityParticipants(root, state).every(role => role === 'reviewer'), 'Use quality for the approved participant set; a reviewer-only request cannot skip selected roles.');
     // Only a new request needs QA; reusing the pending one (a reviewer resuming its part) keeps its participants.
     if (state.verification) check(expected.checks?.includes('qa'), 'QA contract requires QA participation in frozen review.');
     if (expected.checks) {
-      check(expected.checks.some(role => role !== 'refactor'), 'Refactor advice cannot replace the existing quality checks.');
+      check(expected.checks.some(role => role !== 'refactor') || qualityParticipants(root, state).every(role => role === 'refactor'), 'Refactor advice cannot replace the existing quality checks.');
+      if (state.quality_roles) check(qualityParticipants(root, state, { recheck: expected.recheck }).every(role => expected.checks.includes(role)), 'Review cannot omit approved quality roles.');
       check(state.approval && state.verified_baseline && sourceFingerprint(root, verifiedFormat(state)) === state.verified_baseline, 'Verify the approved implementation before requesting combined checks.');
       check(!expected.checks.includes('designer') || state.design, 'Design QA requires an approved design contract.');
     }
@@ -1324,24 +1411,21 @@ export function requestReview(root, story, expected = {}) {
       if (pending.length) check(JSON.stringify(snapshot.checks) === JSON.stringify(expected.checks), 'Review retry must preserve exact participants.');
       for (const role of new Set(['reviewer', ...expected.checks])) check(fs.statSync(safe(root, '.harness/inbox', role)).isDirectory(), 'Run setup first.');
     }
-    const id = pending[0]?.id ?? deliver(root, 'executor', 'reviewer', story, 'Review the frozen implementation; save draft before explicit reply.', snapshot);
-    if (expected.checks && !pending.length) {
-      const created = [['reviewer', id]];
-      try {
-        const request = locate(root, 'reviewer', id), checks = [...expected.checks];
-        const check_requests = checks.includes('reviewer') ? { reviewer: id } : {};
+    let request = pending[0] ?? newMessage('executor', 'reviewer', story, 'Review the frozen implementation; save draft before explicit reply.', snapshot);
+    const effects = [];
+    if (!pending.length) {
+      if (expected.checks) {
+        const checks = [...expected.checks], check_requests = checks.includes('reviewer') ? { reviewer: request.id } : {};
         for (const role of checks) if (role !== 'reviewer') {
-          const child = deliver(root, 'executor', role, story, JSON.stringify({ type: 'c2h_quality_request', request_id: id, role, baseline: request.baseline, fingerprint: request.fingerprint ?? 'git-v1' }));
-          check_requests[role] = child; created.push([role, child]);
+          const child = newMessage('executor', role, story, JSON.stringify({ type: 'c2h_quality_request', request_id: request.id, role, baseline: request.baseline, fingerprint: request.fingerprint ?? 'git-v1' }));
+          check_requests[role] = child.id; effects.push([messagePath(child), encode(child)]);
         }
-        atomic(root, safe(root, '.harness/inbox/reviewer', `${id}.json`), encode({ ...request, checks, check_requests }));
-      } catch (error) {
-        for (const [role, message] of created) fs.unlinkSync(safe(root, '.harness/inbox', role, `${message}.json`));
-        throw error;
+        request = envelope({ ...request, checks, check_requests });
       }
+      effects.unshift([messagePath(request), encode(request)]);
     }
-    if (state.request_id !== id) saveState(root, { ...state, phase: 'reviewing', note: 'Frozen implementation sent for review.', request_id: id });
-    return id;
+    if (state.request_id !== request.id) saveState(root, { ...state, phase: 'reviewing', note: 'Frozen implementation sent for review.', request_id: request.id }, undefined, effects);
+    return request.id;
   });
 }
 
@@ -1375,7 +1459,7 @@ function batchStatus(root, id, validateSource = true) {
 export function qualityStatus(root, id) {
   const status = batchStatus(root, id), state = loadState(root);
   check(state?.request_id === id && state.story === status.request.story, 'A different quality request is active.');
-  return { ...status, ...(!status.pending.length && !status.response ? { recovery: 'All reports saved but aggregate undelivered; retry submit-check with the original request, role and report.' } : {}) };
+  return { ...status, workflow: deriveWorkflow({ state, quality: status }), ...(!status.pending.length && !status.response ? { recovery: 'All reports saved but aggregate undelivered; retry submit-check with the original request, role and report.' } : {}) };
 }
 function submitCheckLocked(root, id, role, report) {
   const status = batchStatus(root, id), state = loadState(root);
@@ -1473,6 +1557,7 @@ export function checkpoint(root, story, phase, note, options = {}) {
     // Planning changes no source, so the next story can be planned while a refactor runs; everything after waits.
     if (phase !== 'planning') noRefactorWork(root);
     let state;
+    const effects = [];
     try {
       const current = loadState(root);
       if (phase === 'done' && current?.story === story && compactedRecord(root, story)) {
@@ -1520,6 +1605,7 @@ export function checkpoint(root, story, phase, note, options = {}) {
         if (!state.approval) { const design = designStatus(root, story); check(!design.ready && !design.stale, 'Ready design requires composite handoff approval for story, design and preview.'); }
       }
       if (approved && !continuingFix) {
+        if (phase === 'implementing') state = { ...state, quality_roles: qualityParticipants(root, state) };
         state = { ...state, approval: {
           kind: phase === 'fixing' ? 'fix' : 'implementation', story_hash: state.story_hash, note,
           ...(phase === 'fixing' ? { response_id: responses(root, reviewRequest(root, state.request_id))[0].id } : {}),
@@ -1538,16 +1624,18 @@ export function checkpoint(root, story, phase, note, options = {}) {
     if (phase === 'done') {
       if (state.phase === 'done') return state;
       check(['implementation_done', 'review_decision'].includes(state.phase), 'Complete and verify implementation before final completion.');
-      check(state.request_id, 'Final completion requires a reviewed implementation.');
-      const request = reviewRequest(root, state.request_id), response = responses(root, request)[0];
-      check(response, 'Final completion requires a review result.');
-      // Completing straight from implementation_done means the verified fixes were not reviewed again.
+      const participants = qualityParticipants(root, state);
+      const executorOnly = state.quality_roles !== undefined && participants.every(role => role === 'refactor') && !state.verification;
+      check(state.request_id || executorOnly && !participants.length, 'Final completion requires a reviewed implementation.');
+      const request = state.request_id ? reviewRequest(root, state.request_id) : null, response = request && responses(root, request)[0];
+      if (request) check(response, 'Final completion requires a review result.');
+      // Completion without independent correctness review still requires the exact verified source.
       const manualFixes = state.phase === 'implementation_done';
-      if (manualFixes) {
-        check(state.approval?.kind === 'fix' && state.verified_baseline, 'Completion without a fresh review requires verified review-based fixes.');
+      if (manualFixes || executorOnly) {
+        check(state.approval && (executorOnly || state.approval.kind === 'fix') && state.verified_baseline, 'Completion without a fresh review requires verified review-based fixes.');
         check(sourceFingerprint(root, verifiedFormat(state)) === state.verified_baseline, 'Source changed since implementation verification; verify again before completion.');
       }
-      verifyResponse(root, request, response, !manualFixes);
+      if (request) verifyResponse(root, request, response, !manualFixes);
       if (state.verification) {
         check(reviewFingerprint(root, request) === request.baseline, 'QA must verify the current corrected version; request fresh QA after fixes.');
         check(JSON.stringify(request.verification) === JSON.stringify(state.verification), 'QA ran against a contract the user later amended; request fresh QA with quality --recheck.');
@@ -1560,9 +1648,10 @@ export function checkpoint(root, story, phase, note, options = {}) {
       const format = pending[0]?.fingerprint ?? (manualFixes ? verifiedFormat(state) : currentFormat());
       const baseline = sourceFingerprint(root, format);
       check(pending.length <= 1 && pending.every(data => data.story_hash === state.story_hash && data.baseline === baseline), 'Conflicting planning request; inspect interrupted completion.');
-      const id = pending[0]?.id ?? deliver(root, 'executor', 'planner', story, '스토리 완료가 기록됐다. 이 스토리에서 무슨 작업을 했는지만 records/result-draft.md에 짧게 쓴다(# 제목은 사용자가 얻은 결과 한 줄, ## 한 일, 필요하면 ## 바뀐 파일). 저장하면 result.md로 확정되고 나머지 스토리 파일은 지워진다. 그 뒤 사용자의 다음 스토리 요청을 기다린다. 다음 스토리를 먼저 계획하지 않는다.', { kind: 'planning_request', approved: true, consolidation_required: true, story_hash: state.story_hash, baseline, fingerprint: format });
-      state = { ...state, completion: { baseline, fingerprint: format, message_id: id, basis: manualFixes ? 'verified_fixes' : 'reviewed',
-        ...(locate(root, 'planner', id).consolidation_required ? { consolidation_required: true } : {}) } };
+      const message = pending[0] ?? newMessage('executor', 'planner', story, '스토리 완료가 기록됐다. 이 스토리에서 무슨 작업을 했는지만 records/result-draft.md에 짧게 쓴다(# 제목은 사용자가 얻은 결과 한 줄, ## 한 일, 필요하면 ## 바뀐 파일). 저장하면 result.md로 확정되고 나머지 스토리 파일은 지워진다. 그 뒤 사용자의 다음 스토리 요청을 기다린다. 다음 스토리를 먼저 계획하지 않는다.', { kind: 'planning_request', approved: true, consolidation_required: true, story_hash: state.story_hash, baseline, fingerprint: format });
+      if (!pending.length) effects.push([messagePath(message), encode(message)]);
+      state = { ...state, completion: { baseline, fingerprint: format, message_id: message.id, basis: executorOnly ? 'executor_verified' : manualFixes ? 'verified_fixes' : 'reviewed',
+        ...(message.consolidation_required ? { consolidation_required: true } : {}) } };
       delete state.planning_from;
     }
     if (phase === 'implementation_done') {
@@ -1570,14 +1659,14 @@ export function checkpoint(root, story, phase, note, options = {}) {
       const format = currentFormat(), baseline = sourceFingerprint(root, format);
       state = { ...state, verified_baseline: baseline, verified_fingerprint: format, verified_manifest: saveSourceManifest(root, baseline, `verified-${story}`, format) };
     }
-    return saveState(root, { ...state, phase, note });
+    return saveState(root, { ...state, phase, note }, undefined, effects);
   });
 }
 
 // Which role acts on each independent refactor phase. The executor and refactor otherwise wait it out; the planner,
 // designer, QA and an idle reviewer keep their story view (the next story may be planned meanwhile) with a refactor note.
 const TASK_ACTIONS = {
-  executor: { approved: 'refactor_implement', executing: 'refactor_implement', fixing: 'refactor_implement', reviewed: 'refactor_decision', done: 'refactor_cleanup' },
+  executor: { approved: 'refactor_implement', executing: 'refactor_implement', fixing: 'refactor_implement', reviewed: 'refactor_decision', verified: 'refactor_decision', done: 'refactor_cleanup' },
   refactor: { proposed: 'refactor_discuss' },
   reviewer: { reviewing: 'refactor_review' },
 };
@@ -1586,7 +1675,7 @@ function resumed(root, role, fingerprint = sourceFingerprint) {
   const task = refactorTask(root), action = task && TASK_ACTIONS[role]?.[task.phase];
   // A resumed executor that finds its edits already made finishes them; it never rolls them back to start over.
   const edited = task?.phase === 'executing' && action && fingerprint(root, task.fingerprint) !== task.baseline;
-  if (action) return { story: null, phase: task.phase, action, checkpoint: null, task, ...(action === 'refactor_decision' ? { reviews_left: MAX_REFACTOR_REVIEWS - task.round } : {}), ...(edited ? { source_changed: true } : {}) };
+  if (action) return { story: null, phase: task.phase, action, checkpoint: null, task, ...(action === 'refactor_decision' ? { reviews_left: task.review_required === false ? 0 : MAX_REFACTOR_REVIEWS - task.round } : {}), ...(edited ? { source_changed: true } : {}) };
   if (task && (role === 'executor' || role === 'refactor')) return { story: null, phase: task.phase, action: 'wait', checkpoint: null, task };
   const state = storyResumed(root, role, fingerprint);
   return task ? { ...state, refactor: { id: task.id, phase: task.phase } } : state;
@@ -1598,7 +1687,7 @@ function storyResumed(root, role, fingerprint) {
     const current = storyResumed(root, 'executor', fingerprint);
     if (current.action === 'blocked') return { ...current, message: undefined };
     const message = messages(root, role)[0];
-    return { story: message?.story ?? current.story, phase: current.phase, action: message ? 'assist' : 'wait', checkpoint: current.checkpoint, ...(message ? { message } : {}) };
+    return { ...current, action: message ? 'assist' : 'wait', message };
   }
   const state = loadState(root);
   const pending = messages(root, role);
@@ -1634,9 +1723,10 @@ function storyResumed(root, role, fingerprint) {
   const roundsLeft = verifiedFixes && reviewRounds(root, state.story) < MAX_REVIEW_ROUNDS;
   // A corrected acceptance test that QA saved stops the automatic steps until the user chooses (FLOW: QA 계약 수정).
   const amendment = role === 'executor' && state.verification && ['review_decision', 'fixing', 'implementation_done'].includes(state.phase) && !open.length ? qaAmendDraft(root, state.story) : [];
-  const auto = role !== 'executor' || amendment.length ? undefined : action === 'implementation_choices' ? 'quality'
+  const participants = role === 'executor' ? qualityParticipants(root, state, { recheck: verifiedFixes }) : [];
+  const auto = role !== 'executor' || amendment.length ? undefined : action === 'implementation_choices' ? (participants.length || state.quality_roles === undefined ? 'quality' : 'done')
     : ['brief', 'review_decision', 'completion_choices'].includes(action) && !verifiedFixes ? 'apply'
-    : verifiedFixes ? (roundsLeft ? 'recheck' : state.verification ? undefined : 'done') : undefined;
+    : verifiedFixes ? (roundsLeft && participants.length ? 'recheck' : state.verification ? undefined : 'done') : undefined;
   const stop = amendment.length ? `QA saved a corrected approved acceptance test/contract under records/qa-amend/ (${amendment.join(', ')}); show the defect evidence and the diff, then ask the user (FLOW: QA 계약 수정).`
     : verifiedFixes && !auto ? `Review round limit reached (${MAX_REVIEW_ROUNDS}) and the QA contract needs a current-version PASS; ask the user (FLOW: 자동 완료가 막혔을 때).` : undefined;
   const message = action === 'plan_next' ? pending.find(data => data.id === (state.completion?.message_id ?? state.planning_from)) : action === 'brief' ? response : pending.find(data => data.kind === 'implementation_request' && data.story === state.story && data.story_hash === state.story_hash);
@@ -1646,6 +1736,240 @@ function storyResumed(root, role, fingerprint) {
   return { story: state.story, phase: state.phase, action, ...(auto ? { auto } : {}), ...(stop ? { auto_stopped: stop } : {}), ...(amendment.length ? { qa_amendment: amendment } : {}), checkpoint: state, ...(result ? { result, ...(cleanupPending ? { compaction_pending: true } : {}) } : {}), ...(request ? { request } : {}), ...(message ? { message } : {}),
     ...(['blocked', 'implementation_done'].includes(state.phase) && state.verified_baseline && fingerprint(root, verifiedFormat(state)) !== state.verified_baseline
       ? { reverification_required: true } : {}) };
+}
+
+const workRecordFile = (root, role, key) => { roleCheck(role); textCheck(key, 1000, 'Work key'); return safe(root, '.harness/work', role, `${hash(key)}.json`); };
+const sessionFile = (root, role) => { roleCheck(role); return safe(root, '.harness/work/sessions', `${role}.json`); };
+const processAlive = pid => { try { process.kill(pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; } };
+function workRecord(root, role, key) {
+  const file = workRecordFile(root, role, key);
+  if (!exists(file)) return null;
+  const record = json(file);
+  check(record.key === key && record.role === role && typeof record.id === 'string' && typeof record.kind === 'string' && typeof record.owner === 'string' && /^[A-Za-z0-9_.:-]{1,200}$/.test(record.owner) && /^[a-f0-9]{24}$/.test(record.token) && Number.isSafeInteger(record.attempt) && record.attempt > 0 && Number.isSafeInteger(record.offered_at) && record.offered_at > 0 && ['offered', 'running', 'ready', 'waiting_user', 'blocked', 'done'].includes(record.status), 'Invalid durable work receipt.');
+  if (record.kind === 'discussion') idCheck(record.id);
+  return record;
+}
+function workRecords(root, role) {
+  const folder = safe(root, '.harness/work', role);
+  if (!exists(folder)) return [];
+  return fs.readdirSync(folder).filter(name => /^[a-f0-9]{64}\.json$/.test(name)).map(name => {
+    const record = json(safe(root, folder, name));
+    check(record.role === role && workRecordFile(root, role, record.key) === safe(root, folder, name), 'Mismatched durable work receipt.');
+    return workRecord(root, role, record.key);
+  });
+}
+function currentSession(root, role) {
+  const file = sessionFile(root, role);
+  if (!exists(file)) return null;
+  const session = json(file);
+  check(typeof session.owner === 'string' && /^[A-Za-z0-9_.:-]{1,200}$/.test(session.owner) && Number.isSafeInteger(session.pid) && session.pid > 0 && typeof session.base === 'string', 'Invalid work session.');
+  return session;
+}
+export function workSession(root, role) { return currentSession(root, role); }
+export function openWorkSession(root, role, { owner, pid = Number(process.env.C2H_HOST_PID) || process.ppid } = {}) {
+  roleCheck(role); check(typeof owner === 'string' && /^[A-Za-z0-9_.:-]{1,200}$/.test(owner) && Number.isSafeInteger(pid) && pid > 0, 'Invalid work session owner.');
+  return transaction(root, root => {
+    const current = currentSession(root, role);
+    check(!current || current.pid === pid || !processAlive(current.pid), 'Another live session owns this role; stop it before replacing the work consumer.');
+    const session = { owner, pid, base: process.env.C2H_SESSION ?? `pid:${pid}` };
+    atomic(root, sessionFile(root, role), encode(session));
+    return session;
+  }, { allowIntent: true });
+}
+export function closeWorkSession(root, role, owner) {
+  return transaction(root, root => {
+    const current = currentSession(root, role);
+    if (!current || current.owner !== owner) return { closed: false };
+    fs.unlinkSync(sessionFile(root, role));
+    return { closed: true };
+  });
+}
+function consumer(root, role, owner) {
+  const current = currentSession(root, role);
+  const base = process.env.C2H_SESSION ?? `pid:${Number(process.env.C2H_HOST_PID) || process.ppid}`;
+  if (current) {
+    if (processAlive(current.pid)) {
+      check(owner ? owner === current.owner : base === current.base, 'Work belongs to a different role session; rejoin through the current native session.');
+      return current;
+    }
+  }
+  const session = { owner: owner ?? base, pid: Number(process.env.C2H_HOST_PID) || process.ppid, base };
+  check(/^[A-Za-z0-9_.:-]{1,200}$/.test(session.owner), 'Invalid work owner.');
+  atomic(root, sessionFile(root, role), encode(session));
+  return session;
+}
+function messageBody(message) { try { return JSON.parse(message.message); } catch { return null; } }
+function feedbackAnswered(state, message) {
+  if (message.origin_checkpoint) return message.origin_checkpoint !== hash(encode(state));
+  const id = message.id;
+  const sent = `${id.slice(0, 4)}-${id.slice(4, 6)}-${id.slice(6, 8)}T${id.slice(9, 11)}:${id.slice(11, 13)}:${id.slice(13, 15)}.${id.slice(15, 18)}Z`;
+  return state?.story_hash !== messageBody(message)?.story_hash || Date.parse(state?.updated) > Date.parse(sent);
+}
+function savedDrafts(root, role, state) {
+  if (state.result && !state.compaction_pending) return [];
+  const folder = state.task ? taskFolder(root, state.task.id) : state.story ? storyDirectory(root, state.story) : null;
+  if (!folder || !exists(folder)) return [];
+  if (role === 'planner') return exists(safe(root, folder, 'records/result-draft.md')) ? [path.relative(root, safe(root, folder, 'records/result-draft.md'))] : [];
+  const prefix = role === 'reviewer' ? 'review' : role === 'designer' ? 'design-review' : role === 'refactor' ? 'refactor' : 'qa';
+  const used = new Set((state.task?.reviews ?? []).map(item => item.report));
+  for (const dir of [folder, safe(root, folder, 'records')].filter(exists)) for (const name of fs.readdirSync(dir)) {
+    if (/^quality-.*-(?:reviewer|designer|qa|refactor)\.json$/.test(name)) used.add(json(safe(root, dir, name)).report);
+  }
+  return [folder, safe(root, folder, 'records')].filter(exists).flatMap(dir => fs.readdirSync(dir)
+    .filter(name => new RegExp(`^${prefix}-[1-9][0-9]*\\.md$`).test(name))
+    .map(name => path.relative(root, safe(root, dir, name))).filter(file => !used.has(file)));
+}
+function projectWork(root, role, state, { running } = {}) {
+  if (state.busy || state.action === 'blocked') return { ...state, workflow: deriveWorkflow({ state }), work: state.action === 'blocked' ? { key: `blocked:${role}`, id: `blocked:${role}`, role, kind: 'blocked', status: 'blocked', reason: state.error ?? state.reason } : null, obligations: [] };
+  const records = workRecords(root, role), pending = new Set(messages(root, role).map(item => item.id));
+  const ownMessages = allMessages(root, role).map(item => ({ ...item, pending: pending.has(item.id) || records.some(record => record.id === item.id && record.kind === 'discussion' && record.status !== 'done') }))
+    .filter(item => !records.some(record => record.id === item.id && record.kind === 'discussion' && record.status === 'done'));
+  const preparations = {};
+  if (state.story && state.phase === 'planning') {
+    const revision = storyHash(root, state.story), interviewFile = safe(root, storyDirectory(root, state.story), 'qa-values.json');
+    let qa_interview = false;
+    if (exists(interviewFile)) {
+      const interview = json(interviewFile);
+      if (interview.version === 1 && interview.story_hash === revision) { interviewRecord(revision, interview.answers); qa_interview = true; }
+    }
+    preparations[state.story] = { revision, design: designStatus(root, state.story), qa: qaStatus(root, state.story), qa_interview,
+      design_requested: allMessages(root, 'designer').some(item => item.story === state.story && messageBody(item)?.type === 'c2h_design_request' && messageBody(item).story_hash === revision),
+      qa_requested: allMessages(root, 'qa').some(item => item.story === state.story && messageBody(item)?.type === 'c2h_qa_request' && messageBody(item).story_hash === revision) };
+  }
+  const returnedFeedback = allMessages(root, 'designer').filter(item => messageBody(item)?.keep_direction && item.reply_to).map(item => item.reply_to);
+  const plannerPending = new Set(messages(root, 'planner').map(item => item.id));
+  const feedback = allMessages(root, 'planner').map(item => ({ ...item, pending: plannerPending.has(item.id) }));
+  const requests = ['designer', 'qa'].flatMap(target => allMessages(root, target));
+  const feedbackApplied = ownMessages.filter(item => messageBody(item)?.type === 'c2h_plan_feedback' && !item.pending && feedbackAnswered(state.checkpoint, item)).map(item => item.id);
+  const quality = ['reviewing', 'review_ready', 'review_decision'].includes(state.phase) && state.checkpoint?.request_id && state.request?.checks ? batchStatus(root, state.checkpoint.request_id, false) : null;
+  const facts = { role, state, selected: readLayout(root).roles, messages: ownMessages, preparations, quality, returnedFeedback, feedback, feedbackApplied, requests, reviewResponded: Boolean(state.request && !state.request.checks && responses(root, state.request).length), drafts: savedDrafts(root, role, state) };
+  const workflow = deriveWorkflow(facts);
+  const session = currentSession(root, role);
+  const obligations = deriveWork(facts).map(task => {
+    if (task.status !== 'ready') return task;
+    const receipt = workRecord(root, role, task.key);
+    if (running && !running.includes(role)) return { ...task, status: 'waiting_dependency', reason: `Selected role ${role} is offline; its work was not omitted.` };
+    if (receipt?.status === 'waiting_user' || receipt?.status === 'blocked') return { ...task, status: receipt.status, reason: receipt.reason, held: true };
+    if (receipt && session?.owner === receipt.owner && processAlive(session.pid)) {
+      if (receipt.status === 'running') return { ...task, status: 'running', owner: receipt.owner };
+      if (receipt.status === 'offered' && Date.now() - receipt.offered_at < 5000) return { ...task, status: 'offered', owner: receipt.owner };
+    }
+    return task;
+  });
+  const work = obligations.find(task => task.status === 'ready') ?? obligations[0] ?? null;
+  const message = work?.message ?? state.message;
+  return { ...state, ...(message ? { message } : {}), workflow, work, obligations };
+}
+export function roleWork(root, role, options = {}) {
+  const state = readResume(root, role);
+  return state.busy || state.action === 'blocked' || !options.running ? state : projectWork(root, role, state, options);
+}
+export function nextWork(root, role, { owner, explicit = false, running } = {}) {
+  const recovery = reconcile(root);
+  if (recovery.blocked) return { none: true, action: 'blocked', workflow: deriveWorkflow({ state: { phase: 'blocked' } }), note: recovery.reason };
+  return transaction(root, root => {
+    for (const receipt of workRecords(root, role)) if (receipt.kind === 'discussion' && receipt.status === 'done' && exists(safe(root, '.harness/inbox', role, `${receipt.id}.json`))) archive(root, role, receipt.id);
+    const state = projectWork(root, role, resumed(root, role), { running });
+    const task = state.work;
+    if (!task || task.status === 'blocked' && !(explicit && task.held) || task.status === 'waiting_dependency') return { none: true, action: task?.status ?? state.action, workflow: state.workflow, note: task?.reason ?? 'No unfinished role work.' };
+    const session = consumer(root, role, owner);
+    if (!explicit && task.status !== 'ready') return { none: true, action: task.status, workflow: state.workflow, note: task.reason ?? 'This session already received the work; explicit resume revalidates it.' };
+    const previous = workRecord(root, role, task.key), token = randomBytes(12).toString('hex');
+    const receipt = { key: task.key, id: task.id, role, kind: task.kind, story: task.story, ...(task.request_id ? { request_id: task.request_id } : {}), owner: session.owner, status: 'offered', token, offered_at: Date.now(), attempt: (previous?.attempt ?? 0) + 1 };
+    atomic(root, workRecordFile(root, role, task.key), encode(receipt));
+    return { ...task, workflow: state.workflow, status: 'offered', delivery: { token, owner: session.owner }, prompt: `[c2h work ${task.key} ${token}]\n${workPrompt(task, state)}` };
+  });
+}
+export function acceptWork(root, role, key, token, owner) {
+  return transaction(root, root => {
+    const session = consumer(root, role, owner), receipt = workRecord(root, role, key);
+    check(receipt?.owner === session.owner && receipt.token === token && ['offered', 'running'].includes(receipt.status), 'Work delivery changed; do not accept a stale offer.');
+    const state = projectWork(root, role, resumed(root, role));
+    check(state.obligations.some(task => task.key === key && !['blocked', 'waiting_dependency'].includes(task.status)), 'Work completed, blocked or changed before receipt; do not restart it.');
+    atomic(root, workRecordFile(root, role, key), encode({ ...receipt, status: 'running' }));
+    return { key, status: 'running' };
+  });
+}
+export function releaseWork(root, role, key, { owner, state = 'waiting_user', note = 'Explicit resume is required for this unfinished work.' } = {}) {
+  check(['ready', 'waiting_user', 'blocked'].includes(state), 'Invalid work hold state.'); textCheck(note, 4000, 'Work hold reason');
+  return transaction(root, root => {
+    const session = consumer(root, role, owner), receipt = workRecord(root, role, key);
+    check(receipt?.owner === session.owner, 'Only the owning session can release its work.');
+    check(receipt.status !== 'done', 'Completed work cannot be reopened.');
+    atomic(root, workRecordFile(root, role, key), encode({ ...receipt, status: state, reason: note }));
+    return { key, status: state };
+  });
+}
+export function finishDiscussion(root, role, key, owner) {
+  return transaction(root, root => {
+    const session = consumer(root, role, owner), receipt = workRecord(root, role, key);
+    check(receipt?.owner === session.owner && receipt.kind === 'discussion' && ['running', 'done'].includes(receipt.status), 'Only an accepted discussion can be completed here; workflow completion needs its real artifacts.');
+    if (receipt.status === 'done') {
+      if (exists(safe(root, '.harness/inbox', role, `${receipt.id}.json`))) archive(root, role, receipt.id);
+      return { key, status: 'done' };
+    }
+    const message = locate(root, role, receipt.id);
+    check(plainNote(message), 'A typed workflow request cannot be completed as discussion.');
+    atomic(root, workRecordFile(root, role, key), encode({ ...receipt, status: 'done' }));
+    archive(root, role, message.id);
+    return { key, status: 'done' };
+  });
+}
+export function feedbackReturn(root, id) {
+  idCheck(id);
+  return transaction(root, root => {
+    const feedback = locate(root, 'planner', id), body = messageBody(feedback);
+    check(body?.type === 'c2h_plan_feedback' && feedback.sender === 'designer', 'Not a designer planning feedback request.');
+    const previous = allMessages(root, 'designer').find(item => item.reply_to === id && messageBody(item)?.keep_direction);
+    if (previous) return { id: previous.id };
+    const state = designPlanning(root, feedback.story);
+    check(!messages(root, 'planner').some(item => item.id === id), 'Receive and acknowledge the planning feedback before returning it.');
+    const saved = loadState(root);
+    check(saved.story === feedback.story && saved.story_hash === state.story_hash && feedbackAnswered(saved, feedback), 'Save a planning checkpoint for the feedback before returning it.');
+    const current = storyHash(root, feedback.story), direction = json(recordFile(root, feedback.story, 'design-direction.json'));
+    textCheck(direction.choice, 200, 'Design choice'); textCheck(direction.note, 4000, 'Design note');
+    const returned = newMessage('planner', 'designer', feedback.story, JSON.stringify({ type: 'c2h_design_request', story_hash: current, keep_direction: true, message: `플래너 재검토 반영. 메모(데이터): ${state.note ?? ''}. 기존 방향을 유지하고 현재 revision의 설계를 갱신한다.` }), { reply_to: id });
+    commitFiles(root, [[recordFile(root, feedback.story, 'design-direction.json'), encode({ story_hash: current, choice: direction.choice, note: direction.note })], [messagePath(returned), encode(returned)]]);
+    return { id: returned.id };
+  });
+}
+export function reconcile(root) {
+  root = projectRoot(root);
+  if (exists(intentFile(root))) transaction(root, root => applyIntent(root, json(intentFile(root), 4 * 1024 * 1024)), { allowIntent: true });
+  const state = resume(root, 'executor');
+  if (state.busy || state.action === 'blocked') return { blocked: true, reason: state.error ?? 'Protocol writer busy.' };
+  const recovered = [];
+  if (state.checkpoint?.request_id && state.request?.checks && ['reviewing', 'review_ready', 'review_decision'].includes(state.phase)) {
+    const batch = batchStatus(root, state.request.id, false);
+    if (!batch.pending.length && (!batch.response || state.phase !== 'review_decision' || messages(root, 'reviewer').some(item => item.id === batch.request.id))) {
+      const role = batch.checks.at(-1);
+      submitCheck(root, batch.request.id, role, batch.reports[role].report); recovered.push('quality_result');
+    }
+  }
+  if (state.request && !state.request.checks && ['reviewing', 'review_ready'].includes(state.phase)) {
+    const response = responses(root, state.request)[0];
+    if (response) {
+      const reports = JSON.parse(response.message);
+      replyReview(root, state.request.id, reports.review, reports.qa); recovered.push('legacy_review_result');
+    }
+  }
+  if (state.phase === 'planning' && !state.checkpoint?.approval) {
+    const qa = qaStatus(root, state.story), revision = storyHash(root, state.story);
+    const requests = allMessages(root, 'qa').filter(item => item.story === state.story && messageBody(item)?.type === 'c2h_qa_request');
+    if (!qa && state.checkpoint.story_hash === revision && readLayout(root).roles.includes('qa') && (requests.length || exists(recordFile(root, state.story, 'qa-ready.json'))) && !requests.some(item => messageBody(item).story_hash === revision)) {
+      send(root, 'planner', 'qa', state.story, JSON.stringify({ type: 'c2h_qa_request', story_hash: revision })); recovered.push('qa_revision');
+    }
+    if (qa) {
+      const message = JSON.stringify({ type: 'c2h_qa_ready', story_hash: qa.story_hash, hash: qa.hash });
+      if (!allMessages(root, 'planner').some(item => item.sender === 'qa' && item.story === state.story && messageBody(item)?.type === 'c2h_qa_ready' && messageBody(item).story_hash === qa.story_hash && messageBody(item).hash === qa.hash)) {
+        send(root, 'qa', 'planner', state.story, message); recovered.push('qa_ready');
+      }
+    }
+  }
+  if (state.result && state.compaction_pending) {
+    compactStory(root, state.story, { summary: `.harness/stories/${state.story}/records/result-draft.md`, approved: true }); recovered.push('sealed_cleanup');
+  }
+  return { recovered };
 }
 
 export function resume(root, role) { return readResume(root, role); }
@@ -1662,11 +1986,12 @@ function readResume(root, role, fingerprint = sourceFingerprint) {
           : lock ? { story: null, phase: null, action: 'wait', checkpoint: null, busy: true } : null;
       };
       const before = held();
-      if (before) return before;
-      const state = resumed(root, role, fingerprint);
-      return held() ?? state;
+      if (before) return projectWork(root, role, before);
+      if (exists(intentFile(root))) return projectWork(root, role, { story: null, phase: 'blocked', action: 'blocked', checkpoint: null, error: 'Interrupted workflow write intent. Run reconcile to finish the exact recorded transition; do not regenerate approval.' });
+      const state = projectWork(root, role, resumed(root, role, fingerprint)), after = held();
+      return after ? projectWork(root, role, after) : state;
     } catch (error) {
-      if (attempt) return { story: null, phase: 'blocked', action: 'blocked', checkpoint: null, error: error.message };
+      if (attempt) return projectWork(root, role, { story: null, phase: 'blocked', action: 'blocked', checkpoint: null, error: error.message });
     }
   }
 }
@@ -1726,7 +2051,7 @@ export function diagnose(root) {
     if (lock) return { busy: true, next: 'Protocol writer busy; wait and check again.' };
     const task = refactorTask(root);
     if (task) {
-      const changed = ['reviewing', 'reviewed'].includes(task.phase) && sourceFingerprint(root, task.fingerprint) !== task.verified_baseline;
+      const changed = ['reviewing', 'reviewed', 'verified'].includes(task.phase) && sourceFingerprint(root, task.fingerprint) !== task.verified_baseline;
       return { story: null, task: task.id, phase: task.phase, available: false,
         ...(changed ? { error: 'Source changed after the refactor was verified; restore the verified source or close the refactor. A review of another version is not reused.' } : {}),
         next: 'Use resume executor/reviewer/refactor and FLOW: 독립 리팩터링. Never reopen the completed story.' };
@@ -1847,7 +2172,7 @@ export function status(root) {
   const state = roles.executor;
   let refactor;
   try { refactor = refactorStatus(root); } catch (error) { errors.push(`refactor: ${error.message}`); }
-  return { story: state.story, phase: state.phase, checkpoint: state.checkpoint, roles, inbox: queues, errors, ...(refactor ? { refactor } : {}) };
+  return { story: state.story, phase: state.phase, workflow: state.workflow, checkpoint: state.checkpoint, roles, inbox: queues, errors, ...(refactor ? { refactor } : {}) };
 }
 
 function timeoutCheck(timeout, allowZero) {
@@ -1868,62 +2193,32 @@ export async function waitReview(root, id, { timeout = 1800 } = {}) {
   }
 }
 
-// Typed role messages that start work for a role that has no extension of its own; `skip` holds ids already handed over.
-const WAKE_TYPES = { designer: [['planner', 'c2h_design_request'], ['executor', 'c2h_quality_request']], qa: [['planner', 'c2h_qa_request'], ['executor', 'c2h_quality_request']], refactor: [['executor', 'c2h_quality_request']],
-  planner: [['designer', 'c2h_plan_feedback'], ['qa', 'c2h_qa_ready']] };
-function wakes(role, message) {
-  let data; try { data = JSON.parse(message.message ?? ''); } catch { return false; }
-  return WAKE_TYPES[role].some(([sender, type]) => message.sender === sender && data?.type === type);
-}
 export async function waitInbox(root, role, { timeout = 0, skip = new Set() } = {}) {
   roleCheck(role); timeoutCheck(timeout, true);
   const deadline = timeout ? performance.now() + timeout * 1000 : Infinity;
-  const kinds = assistRole(role) ? ['message'] : role === 'executor' ? ['implementation_request', 'review_result'] : role === 'reviewer' ? ['review_request'] : ['planning_request', 'message'];
-  // Quiet polling rehashes only files whose stat changed; every gate that acts on the result verifies without the cache.
+  const owner = currentSession(root, role)?.owner;
   const cache = new Map(), fingerprint = (root, format) => sourceFingerprint(root, format, cache);
   while (true) {
-    // A blocked or unreadable workflow is waited out, not reported by exiting: a waiter that died here would leave the
-    // role deaf to every request sent after the repair. The board shows the block meanwhile.
+    check(currentSession(root, role)?.owner === owner, 'Role session changed; the new native session must open its own waiter.');
     let state;
     try {
+      if (exists(intentFile(root)) && !lockOwner(root)) reconcile(root);
       state = readResume(root, role, fingerprint);
       check(state.action !== 'blocked', state.error || 'Workflow blocked; inspect status.');
     } catch (error) {
       const remaining = deadline - performance.now();
       if (remaining <= 0) throw error;
-      await sleep(Math.min(2000, remaining)); continue;
+      await sleep(Math.min(500, remaining)); continue;
     }
-    if (!state.busy && state.task?.delivery_id && ['refactor_implement', 'refactor_review', 'refactor_decision', 'refactor_cleanup'].includes(state.action) && !skip.has(state.task.delivery_id))
-      return { id: state.task.delivery_id, kind: 'refactor_request', target: role, task: state.task.id };
-    for (const message of state.busy ? [] : inbox(root, role).filter(data => kinds.includes(data.kind))) {
-      if (skip.has(message.id)) continue;
-      if (assistRole(role)) {
-        // Any undelivered typed request wakes the role: an older one it is still working on must not hide a newer one.
-        if (wakes(role, message)) return message;
-        continue;
-      }
-      if (message.kind === 'message') {
-        if (state.action === 'plan' && state.phase === 'planning' && wakes(role, message)) return message;
-        continue;
-      }
-      if (message.kind === 'planning_request') {
-        if (state.action !== 'plan_next' || state.message?.id !== message.id) continue;
-        return message;
-      }
-      check(message.story === state.story, 'Typed message contradicts active story.');
-      if (message.kind === 'implementation_request') {
-        check(message.story_hash === storyHash(root, message.story), 'Approval scope revision changed.');
-        // An unacked old handoff must not wake implementation again after review starts.
-        if (state.action !== 'implement') continue;
-      } else if (message.kind === 'review_result') {
-        if (state.action !== 'brief') continue;
-        verifyResponse(root, reviewRequest(root, message.reply_to), message);
-        check(state.request?.id === message.reply_to, 'Mismatched active review response.');
-      } else check(state.request?.id === message.id, 'Mismatched active review request.');
-      return message;
+    const task = state.work;
+    if (!state.busy && task?.status === 'ready' && !skip.has(task.id)) {
+      const presence = liveState(root, role);
+      if (!presence || !['working', 'native'].includes(presence.state)) return task.message
+        ? { ...task.message, work_key: task.key }
+        : { id: task.id, kind: task.kind.startsWith('refactor_') ? 'refactor_request' : 'workflow_work', target: role, task: state.task?.id ?? task.key, work_key: task.key };
     }
     const remaining = deadline - performance.now();
-    check(remaining > 0, 'Inbox wait timed out. Messages remain unacknowledged.');
+    check(remaining > 0, task?.status === 'blocked' ? task.reason : 'Inbox wait timed out. Unfinished work remains available through work/explicit resume.');
     await sleep(Math.min(500, remaining));
   }
 }

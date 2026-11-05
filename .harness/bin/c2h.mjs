@@ -8,7 +8,8 @@ import { start, runRole, liveRoles } from './launch.mjs';
 import { validateLayout, readLayout, parseAgents } from './layout.mjs';
 import { boardState, showBoard, focusRole } from './board.mjs';
 import { codexUsage, recordUsage } from './usage.mjs';
-import { runTool, nextPrompt, dispatched } from './claude-role.mjs';
+import { runTool, nextPrompt } from './claude-role.mjs';
+import { workflowLabel } from './workflow.mjs';
 
 // Protocol writers hold the lock only inside synchronous transactions. With a listener registered, a termination signal
 // is handled after the running transaction has released the lock; without one the process can die holding it.
@@ -16,8 +17,11 @@ import { runTool, nextPrompt, dispatched } from './claude-role.mjs';
 const INTERACTIVE = ['start', 'run', 'board', 'focus-role'];
 
 export async function main(argv = process.argv.slice(2), { signals = false } = {}) {
+  // Nested helpers must retain the host rather than owning work as an intermediate CLI process.
+  process.env.C2H_HOST_PID ??= String(process.ppid);
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: {
     project: { type: 'string' }, help: { type: 'boolean', short: 'h' },
+    owner: { type: 'string' }, pid: { type: 'string' }, token: { type: 'string' },
     from: { type: 'string' }, to: { type: 'string' }, story: { type: 'string' }, message: { type: 'string' },
     summary: { type: 'string' }, 'summary-hash': { type: 'string' }, 'proposal-hash': { type: 'string' }, baseline: { type: 'string' }, 'refactor-prompt': { type: 'string' },
     answers: { type: 'string' }, contract: { type: 'string' }, 'qa-hash': { type: 'string' }, criterion: { type: 'string' }, outcome: { type: 'string' }, evidence: { type: 'string' },
@@ -28,15 +32,24 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
   } });
   // activity-append, live-set, context-set and usage-record are hook/extension plumbing and stay out of the help list:
   // role models read this list and must not write the console's display records themselves.
-  if (values.help || !positionals.length) return { usage: 'node .harness/bin/c2h.mjs [--project ROOT] COMMAND', commands: ['start [--attach] [--roles LIST] [--agents ROLE=claude|pi,...] [--refactor-prompt FILE]', 'run ROLE [--agent claude|pi]', 'inbox ROLE', 'send --from ROLE --to ROLE --story ID --message TEXT', 'ack ROLE ID', 'handoff STORY --approved', 'checkpoint STORY PHASE --note TEXT [--approved]', 'resume ROLE', 'roles', 'status', 'review STORY [--again] [--approved]', 'cancel-review REQUEST --approved --note REASON', 'reply REQUEST --review PATH [--qa PATH]', 'wait REQUEST [--timeout SECONDS]', 'listen ROLE [--timeout SECONDS]', 'next ROLE [--explicit] [--request TEXT]', 'tool c2h_NAME [--args JSON | JSON on stdin]', 'design-direction STORY (--choice LABEL --note DETAILS | --carry) --story-hash HASH', 'design-ready STORY --design PATH --preview PATH [--needs-planning]', 'design-status STORY', 'quality STORY [--again|--recheck] [--roles LIST] [--approved]', 'changes STORY [--since approval|review]', 'submit-check REQUEST --from ROLE --review REPORT', 'quality-status REQUEST', 'compact-story STORY --summary PATH --approved', 'qa-interview STORY --answers JSON --story-hash HASH', 'qa-ready STORY --contract PATH', 'qa-status STORY', 'qa-result REQUEST --criterion ID --outcome pass|fail|blocked --evidence PATH', 'qa-amend STORY --approved --note REASON', 'activity ROLE', 'live ROLE', 'board [--watch] [--console]', 'board-state', 'diagnose', 'unlock --approved', 'restore-approved STORY --approved', 'verification-workspace REQUEST', 'focus-role ROLE', 'refactor-status', 'refactor-propose --summary PATH', 'refactor-approve ID --approved --proposal-hash HASH --baseline HASH', 'refactor-start ID', 'refactor-finish ID --summary PATH', 'refactor-changes ID [--since approval|review]', 'refactor-review ID --review PATH', 'refactor-fix ID --note TEXT', 'refactor-done ID', 'refactor-close ID --approved'] };
+  if (values.help || !positionals.length) return { usage: 'node .harness/bin/c2h.mjs [--project ROOT] COMMAND', commands: ['start [--attach] [--roles LIST] [--agents ROLE=claude|pi,...] [--refactor-prompt FILE]', 'run ROLE [--agent claude|pi]', 'inbox ROLE', 'send --from ROLE --to ROLE --story ID --message TEXT', 'ack ROLE ID', 'handoff STORY --approved', 'checkpoint STORY PHASE --note TEXT [--approved]', 'resume ROLE', 'work ROLE', 'work-next ROLE [--explicit]', 'work-accept ROLE KEY --token TOKEN', 'work-release ROLE KEY --state ready|waiting_user|blocked --note REASON', 'work-done ROLE KEY', 'work-session ROLE --owner TOKEN --pid PID', 'work-session-close ROLE --owner TOKEN', 'reconcile [ROLE]', 'feedback-return REQUEST', 'roles', 'status', 'review STORY [--again] [--approved]', 'cancel-review REQUEST --approved --note REASON', 'reply REQUEST --review PATH [--qa PATH]', 'wait REQUEST [--timeout SECONDS]', 'listen ROLE [--timeout SECONDS]', 'next ROLE [--explicit] [--request TEXT]', 'tool c2h_NAME [--args JSON | JSON on stdin]', 'design-direction STORY (--choice LABEL --note DETAILS | --carry) --story-hash HASH', 'design-ready STORY --design PATH --preview PATH [--needs-planning]', 'design-status STORY', 'quality STORY [--again|--recheck] [--roles LIST] [--approved]', 'changes STORY [--since approval|review]', 'submit-check REQUEST --from ROLE --review REPORT', 'quality-status REQUEST', 'compact-story STORY --summary PATH --approved', 'qa-interview STORY --answers JSON --story-hash HASH', 'qa-ready STORY --contract PATH', 'qa-status STORY', 'qa-result REQUEST --criterion ID --outcome pass|fail|blocked --evidence PATH', 'qa-amend STORY --approved --note REASON', 'activity ROLE', 'live ROLE', 'board [--watch] [--console]', 'board-state', 'diagnose', 'unlock --approved', 'restore-approved STORY --approved', 'verification-workspace REQUEST', 'focus-role ROLE', 'refactor-status', 'refactor-propose --summary PATH', 'refactor-approve ID --approved --proposal-hash HASH --baseline HASH', 'refactor-start ID', 'refactor-finish ID --summary PATH', 'refactor-changes ID [--since approval|review]', 'refactor-review ID --review PATH', 'refactor-fix ID --note TEXT', 'refactor-done ID', 'refactor-close ID --approved'] };
   const root = fs.realpathSync(values.project ?? process.cwd());
   const [command, first, second] = positionals;
-  const arities = { 'refactor-status': 1, 'refactor-propose': 1, 'refactor-approve': 2, 'refactor-start': 2, 'refactor-finish': 2, 'refactor-changes': 2, 'refactor-review': 2, 'refactor-fix': 2, 'refactor-done': 2, 'refactor-close': 2, board: 1, 'live-set': 2, 'context-set': 2, 'usage-record': 2, live: 2, 'board-state': 1, 'activity-append': 2, activity: 2, diagnose: 1, unlock: 1, 'restore-approved': 2, changes: 2, 'verification-workspace': 2, 'focus-role': 2, 'qa-interview': 2, 'qa-ready': 2, 'qa-status': 2, 'qa-result': 2, 'qa-amend': 2, 'compact-story': 2, quality: 2, 'submit-check': 2, 'quality-status': 2, 'design-direction': 2, 'design-ready': 2, 'design-status': 2, start: 1, run: 2, inbox: 2, send: 1, ack: 3, handoff: 2, checkpoint: 3, resume: 2, roles: 1, status: 1, review: 2, 'cancel-review': 2, reply: 2, wait: 2, listen: 2, next: 2, tool: 2 };
-  if (!arities[command] || positionals.length !== arities[command]) throw new Error('Unknown command or wrong arguments; use --help.');
+  const arities = { work: 2, 'work-next': 2, 'work-accept': 3, 'work-release': 3, 'work-done': 3, 'work-session': 2, 'work-session-close': 2, 'feedback-return': 2, reconcile: [1, 2], 'refactor-status': 1, 'refactor-propose': 1, 'refactor-approve': 2, 'refactor-start': 2, 'refactor-finish': 2, 'refactor-changes': 2, 'refactor-review': 2, 'refactor-fix': 2, 'refactor-done': 2, 'refactor-close': 2, board: 1, 'live-set': 2, 'context-set': 2, 'usage-record': 2, live: 2, 'board-state': 1, 'activity-append': 2, activity: 2, diagnose: 1, unlock: 1, 'restore-approved': 2, changes: 2, 'verification-workspace': 2, 'focus-role': 2, 'qa-interview': 2, 'qa-ready': 2, 'qa-status': 2, 'qa-result': 2, 'qa-amend': 2, 'compact-story': 2, quality: 2, 'submit-check': 2, 'quality-status': 2, 'design-direction': 2, 'design-ready': 2, 'design-status': 2, start: 1, run: 2, inbox: 2, send: 1, ack: 3, handoff: 2, checkpoint: 3, resume: 2, roles: 1, status: 1, review: 2, 'cancel-review': 2, reply: 2, wait: 2, listen: 2, next: 2, tool: 2 };
+  if (!arities[command] || !(Array.isArray(arities[command]) ? arities[command].includes(positionals.length) : positionals.length === arities[command])) throw new Error('Unknown command or wrong arguments; use --help.');
   if (signals && !INTERACTIVE.includes(command)) for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(signal, () => process.exit(128 + os.constants.signals[signal]));
   const timeout = values.timeout === undefined ? undefined : Number(values.timeout);
   if (timeout !== undefined && (!Number.isFinite(timeout) || timeout < 0)) throw new Error('Invalid timeout.');
   switch (command) {
+    case 'work': return runtime.roleWork(root, first, { running: liveRoles(root) });
+    case 'work-next': return runtime.nextWork(root, first, { owner: values.owner, explicit: values.explicit, running: liveRoles(root) });
+    case 'work-accept': return runtime.acceptWork(root, first, second, values.token, values.owner);
+    case 'work-release': return runtime.releaseWork(root, first, second, { owner: values.owner, state: values.state, note: values.note });
+    case 'work-done': return runtime.finishDiscussion(root, first, second, values.owner);
+    case 'work-session': return runtime.openWorkSession(root, first, { owner: values.owner, ...(values.pid === undefined ? {} : { pid: Number(values.pid) }) });
+    case 'work-session-close': return runtime.closeWorkSession(root, first, values.owner);
+    case 'feedback-return': return runtime.feedbackReturn(root, first);
+    case 'reconcile': return runtime.reconcile(root);
     case 'activity-append': return runtime.appendActivity(root, first, values.message ?? '');
     case 'activity': return runtime.roleActivity(root, first);
     case 'board': await showBoard(root, { watch: values.watch, consoleMode: values.console }); return undefined;
@@ -88,15 +101,21 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
     case 'inbox': return runtime.inbox(root, first);
     case 'send': return { id: runtime.send(root, values.from, values.to, values.story, values.message) };
     case 'ack': { const acked = runtime.ack(root, first, second); return acked.closed ? { closed: acked.closed, id: second } : { archived: second }; }
-    case 'handoff': return { id: runtime.handoff(root, first, { approved: values.approved, expectedStoryHash: values['story-hash'], sender: values.from,
-      design: values.design, preview: values.preview, expectedDesignHash: values['design-hash'], expectedPreviewHash: values['preview-hash'], expectedQaHash: values['qa-hash'] }) };
+    case 'handoff': {
+      const live = liveRoles(root), required = readLayout(root).roles.filter(role => ['executor', 'reviewer', 'qa', 'refactor'].includes(role) || role === 'designer' && values.design !== undefined);
+      const missing = required.filter(role => !live.includes(role));
+      if (missing.length) throw new Error(`Selected roles are unavailable: ${missing.join(', ')}; restart them. No handoff saved.`);
+      return { id: runtime.handoff(root, first, { approved: values.approved, expectedStoryHash: values['story-hash'], sender: values.from,
+        design: values.design, preview: values.preview, expectedDesignHash: values['design-hash'], expectedPreviewHash: values['preview-hash'], expectedQaHash: values['qa-hash'] }) };
+    }
     case 'checkpoint': return runtime.checkpoint(root, first, second, values.note ?? '', { approved: values.approved });
     case 'resume': return runtime.resume(root, first);
-    case 'roles': return { roles: liveRoles(root) };
+    case 'roles': return { roles: liveRoles(root), selected: readLayout(root).roles };
     case 'status': return runtime.status(root);
     case 'quality': {
       const state = runtime.resume(root, 'executor');
       if (state.busy || state.action === 'blocked') throw new Error(`Cannot request quality checks: ${JSON.stringify(state)}`);
+      if (state.story !== first) throw new Error('A different story is active; quality checks must name the active story.');
       if (state.request && ['reviewing', 'review_ready', 'review_decision'].includes(state.phase) && !values.again) {
         if (state.story !== first) throw new Error('A different story review is active.');
         if (!state.request.checks) return { id: runtime.requestReview(root, first), checks: ['reviewer'], pending: state.response ? [] : ['reviewer'] };
@@ -104,14 +123,19 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
         return { id: quality.request.id, checks: quality.checks, pending: quality.pending, ...(quality.recovery ? { recovery: quality.recovery } : {}) };
       }
       const live = liveRoles(root), selected = readLayout(root).roles;
-      // --roles narrows a repeat check; it never adds an unselected role. A recheck of verified fixes is the reviewer's
-      // (plus QA under a QA contract): it reviews only what the fixes changed.
+      // Rechecks retain every approved correctness role; advisory refactor participates only in the first round.
       if (values.recheck && values.roles !== undefined) throw new Error('--recheck chooses its own roles; drop --roles.');
-      const subset = values.recheck ? ['reviewer', ...(state.checkpoint?.verification ? ['qa'] : [])] : values.roles === undefined ? null : values.roles.split(',');
+      const subset = values.roles === undefined ? null : values.roles.split(',');
       if (subset && !values.recheck && (!values.again || !subset.length || subset.some(role => !['reviewer', 'designer', 'qa', 'refactor'].includes(role)))) throw new Error('--roles needs --again and a list of reviewer, designer, qa, refactor.');
-      const checks = ['reviewer', 'designer', 'qa', 'refactor'].filter(role => selected.includes(role) && live.includes(role) && (role !== 'designer' || state.checkpoint?.design) && (!subset || subset.includes(role)));
-      if (state.checkpoint?.verification && !checks.includes('qa')) throw new Error('Required QA role is unavailable; restart that role explicitly. Missing QA is not PASS.');
-      if (!checks.length) throw new Error('No selected quality-check role is running; start reviewer/QA or an approved-design designer.');
+      const required = runtime.qualityParticipants(root, state.checkpoint ?? {}, { recheck: values.recheck });
+      const checks = required.filter(role => !subset || subset.includes(role));
+      if (state.checkpoint?.verification && (!checks.includes('qa') || !selected.includes('qa') || !live.includes('qa'))) throw new Error('Required QA role is unavailable; restart that role explicitly. Missing QA is not PASS.');
+      const missing = required.filter(role => !selected.includes(role) || !live.includes(role));
+      if (missing.length) throw new Error(`Approved quality roles are unavailable: ${missing.join(', ')}; restart them. Missing checks are not PASS.`);
+      if (!checks.length) {
+        if (required.length || state.checkpoint?.quality_roles === undefined) throw new Error('No selected quality-check role is running; start reviewer/QA or an approved-design designer.');
+        return { id: null, checks: [], skipped: 'Independent quality roles not selected; executor verification is required, not independent QA PASS.' };
+      }
       return { id: runtime.requestReview(root, first, { again: values.again || values.recheck, recheck: values.recheck, extra: values.approved, checks }), checks };
     }
     case 'submit-check': return runtime.submitCheck(root, first, values.from, values.review);
@@ -125,13 +149,13 @@ export async function main(argv = process.argv.slice(2), { signals = false } = {
     case 'wait': return runtime.waitReview(root, first, { timeout: timeout ?? 1800 });
     case 'listen': {
       runtime.registerWaiter(root, first);
-      try { return await runtime.waitInbox(root, first, { timeout: timeout ?? 0, skip: first === 'executor' ? undefined : dispatched(root, first) }); }
+      try { return await runtime.waitInbox(root, first, { timeout: timeout ?? 0 }); }
       finally { runtime.releaseWaiter(root, first); }
     }
     // Claude roles only: the delivery prompt and c2h_* tools that the Pi extension provides (see claude-role.mjs).
     case 'next': {
       const found = nextPrompt(root, first, { explicit: values.explicit, request: values.request ?? '' });
-      return found.none ? `처리할 요청 없음 (${found.action}). ${found.note}` : [`[c2h next] 역할 ${found.role}${found.story ? ` · 스토리 ${found.story}` : ''}${found.message_id ? ` · 메시지 ${found.message_id}` : ''}`, ...found.instructions].join('\n');
+      return found.none ? `처리할 요청 없음 (${found.action}). ${found.workflow ? `${workflowLabel(found.workflow)}. ` : ''}${found.note}` : [`[c2h next] 역할 ${found.role}${found.story ? ` · 스토리 ${found.story}` : ''}${found.message_id ? ` · 메시지 ${found.message_id}` : ''}`, ...found.instructions].join('\n');
     }
     case 'tool': {
       let given = values.args;

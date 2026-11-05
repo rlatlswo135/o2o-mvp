@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { ROLES, AGENTS, DEFAULT_LAYOUT, validateLayout, readLayout, writeLayout } from './layout.mjs';
 import { selectRoles } from './pane-ui.mjs';
@@ -37,7 +37,7 @@ export function roleBootstrap(role, agent = 'pi') {
   return bootstrap;
 }
 
-// Harness-only Claude hooks and status line (every Claude role): display evidence only. Questions and permissions stay in Claude's own dialog.
+// Harness-only hooks: synchronous ownership/receipt gates, asynchronous display evidence. Native dialogs retain approvals.
 export function claudeHooks(root, role) {
   const hook = event => [process.execPath, path.join(root, '.harness/bin/claude-hook.mjs'), event].map(quote).join(' ');
   const quick = event => [{ type: 'command', command: hook(event), async: true, timeout: 30 }];
@@ -46,9 +46,12 @@ export function claudeHooks(root, role) {
   const assist = role !== undefined && role !== 'executor';
   const sync = event => [{ type: 'command', command: hook(event), timeout: 120 }];
   return { statusLine: { type: 'command', command: hook('statusline') }, hooks: {
-    UserPromptSubmit: [{ hooks: quick('submit') }, ...(assist ? [{ hooks: sync('snapshot') }] : [])],
-    PreToolUse: [{ matcher: '*', hooks: quick('pre') }],
-    PostToolUse: [{ matcher: '*', hooks: quick('post') }],
+    SessionStart: [{ hooks: sync('session') }],
+    SessionEnd: [{ hooks: sync('end') }],
+    UserPromptSubmit: [{ hooks: sync('submit') }, ...(assist ? [{ hooks: sync('snapshot') }] : [])],
+    PreToolUse: [{ matcher: '*', hooks: sync('pre') }],
+    PostToolUse: [{ matcher: '*', hooks: sync('post') }],
+    PostToolUseFailure: [{ matcher: '*', hooks: sync('tool-failure') }],
     PermissionRequest: [{ matcher: '*', hooks: quick('permission') }],
     Notification: [{ hooks: quick('notify') }],
     Stop: [{ hooks: quick('stop') }, ...(assist ? [{ hooks: sync('settle') }] : []), ...(role !== undefined ? [{ hooks: sync('waiter') }] : [])],
@@ -65,7 +68,7 @@ export function roleCommand(directory, role, env = process.env, agent) {
   const bootstrap = roleBootstrap(role, agent);
   const args = [...(agent === 'claude' ? ['--settings', JSON.stringify(claudeHooks(root, role))] : []), '--append-system-prompt', prompt, bootstrap];
   // Hooks and the Pi extension recognise the launch prompt by hash: its reply is not an unread reply.
-  return { command: agent, args, env: { ...env, C2H_ROLE: role, C2H_PROJECT: root, C2H_BOOTSTRAP: createHash('sha256').update(bootstrap).digest('hex') }, cwd: root };
+  return { command: agent, args, env: { ...env, C2H_ROLE: role, C2H_PROJECT: root, C2H_BOOTSTRAP: createHash('sha256').update(bootstrap).digest('hex'), C2H_SESSION: randomUUID(), C2H_HOST_PID: String(process.pid) }, cwd: root };
 }
 
 export function runRole(root, role, agent) {

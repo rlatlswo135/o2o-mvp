@@ -20,3 +20,5 @@
 - `.harness/refactor/ID/proposal.md`(승인된 수정안)와 `implementation.md`(수정 전·후 검증)를 읽고, `refactor-changes ID`로 승인 이후 바뀐 경로의 실제 코드를 본다. 재리뷰(2/2)면 `refactor-changes ID --since review`로 바뀐 부분과 `## 리뷰와 반영`만 본다.
 - 동작 변경·수정안 범위 이탈·실제 결함·검증 누락만 R ID·파일:줄·실패 조건·근거가 된 수정안 줄과 함께 지적한다. 추가 구조 개선·취향은 '제안'으로 분리한다(반영 대상 아님).
 - `.harness/refactor/ID/review-N.md`에 새로 쓰고 `c2h_refactor_review(taskId, review)`로 보낸다. 소스는 바꾸지 않으며 전송된 리뷰는 불변이다.
+
+Reviewer는 선택 역할이다. 선택된 경우 quality_roles로 고정되며 첫 검토 및 수정 후 모든 correctness recheck에 참여한다. 오프라인이면 생략하지 않고 오류다. 미선택이면 executor가 동일 전후 검증을 하며 독립 리뷰가 없음을 명시한다.

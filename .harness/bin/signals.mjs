@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 
 // Display state only. Sources: pane liveness, hook/extension live state, the latest recorded reply, workflow hints.
-export const phases = { planning: '계획', implementing: '구현 중', implementation_done: '구현 완료', reviewing: '독립 검증', review_ready: '결과 준비', review_decision: '리뷰 반영', fixing: '수정 중', done: '완료', blocked: '진행 중단', proposed: '수정안 논의', approved: '독립 수정 승인', executing: '독립 수정 중', reviewed: '리뷰 결과 판단' };
-export const actions = { plan: '계획·범위 확인', plan_next: '완료 정리', await_story: '다음 스토리 대기', implement: '승인 범위 구현', implementation_choices: '종합 검토 요청', review: '코드 검토', review_choices: '검토 결과', review_decision: '리뷰 반영', completion_choices: '재리뷰·완료', wait: '인계 대기', brief: '결과 브리핑', assist: '보조 요청', blocked: '상태 확인 필요', done: '완료', select_story: '작업 선택', refactor_discuss: '구조 개선 논의', refactor_implement: '독립 수정·검증', refactor_review: '리팩터링 리뷰', refactor_decision: '리팩터링 리뷰 판단', refactor_cleanup: '독립 수정 정리' };
+export const phases = { planning: '계획', implementing: '구현 중', implementation_done: '구현 완료', reviewing: '독립 검증', review_ready: '결과 준비', review_decision: '리뷰 반영', fixing: '수정 중', done: '완료', blocked: '진행 중단', proposed: '수정안 논의', approved: '독립 수정 승인', executing: '독립 수정 중', reviewed: '리뷰 결과 판단', verified: '자체 검증 완료' };
+export const actions = { executor_step: '검증된 자동 단계', quality: '고정 버전 검토', plan_feedback: '디자인 요구 재검토', qa_feedback: 'QA 계약 확인', design: '설계 준비', design_ready: '설계 인계', qa_contract: 'QA 계약 준비', qa_notify: '준비 알림 복구', complete: '완료 정리', discussion: '후속 논의', plan: '계획·범위 확인', plan_next: '완료 정리', await_story: '다음 스토리 대기', implement: '승인 범위 구현', implementation_choices: '종합 검토 요청', review: '코드 검토', review_choices: '검토 결과', review_decision: '리뷰 반영', completion_choices: '재리뷰·완료', wait: '인계 대기', brief: '결과 브리핑', assist: '보조 요청', blocked: '상태 확인 필요', done: '완료', select_story: '작업 선택', refactor_discuss: '구조 개선 논의', refactor_implement: '독립 수정·검증', refactor_review: '리팩터링 리뷰', refactor_decision: '리팩터링 리뷰 판단', refactor_cleanup: '독립 수정 정리' };
 export const BADGES = { stop: '멈춤 확인 필요', choice: '선택 필요', reply: '응답 확인 필요' };
 const SLEEP = 300000;
 
@@ -10,7 +10,8 @@ const SLEEP = 300000;
 export function roleAlert(row, now = Date.now()) {
   const presence = row.presence, alert = (kind, since) => ({ kind, badge: BADGES[kind], since });
   if (!row.live) return alert('stop');
-  if (row.hint === 'blocked') return alert('stop');
+  if (row.hint === 'blocked' || row.work?.status === 'blocked') return alert('stop');
+  if (row.work?.status === 'waiting_user') return alert('choice');
   if (presence?.state === 'failed') return alert('stop', presence.at);
   if (presence?.state === 'working' && row.quiet) return alert('stop', presence.at);
   if (presence?.state === 'native') return alert('choice', presence.at);
@@ -26,6 +27,8 @@ export function roleStatus(row, now = Date.now()) {
   if (presence?.state === 'working') return presence.tool ? `작업 중 · ${presence.tool}` : '작업 중';
   if (presence?.state === 'native') return '선택 창 열림';
   if (presence?.state === 'failed') return '응답 오류';
+  if (row.work?.status === 'waiting_user') return '사용자 재개 대기';
+  if (row.work?.status === 'waiting_dependency') return '선행 작업 대기';
   if (presence?.state === 'idle' && now - presence.at > SLEEP) return `휴식 · ${elapsed(presence.at, now)}`;
   return actions[row.state] ?? '대기';
 }
@@ -46,9 +49,11 @@ const STAGE = { planning: '계획', implementing: '구현', implementation_done:
 // waiting: the finished story's complete screen was closed, so the stages wait for the next story instead of showing it done.
 export function pipeline({ story, phase, roles = [], designPending = false, qaPending = false, refactorPending = false, blocked = false, started = false, waiting = false }) {
   if (!story) return null;
-  const names = ['계획', ...(roles.includes('designer') ? ['디자인'] : []), '구현', '리뷰', ...(roles.includes('qa') ? ['QA'] : []), ...(roles.includes('refactor') ? ['구조 자문'] : [])];
+  const review = roles.some(role => ['reviewer', 'designer', 'qa'].includes(role)) ? '리뷰' : '자체 검증';
+  const names = ['계획', ...(roles.includes('designer') ? ['디자인'] : []), '구현', review, ...(roles.includes('qa') ? ['QA'] : []), ...(roles.includes('refactor') ? ['구조 자문'] : [])];
   if (phase === 'done') return names.map(name => ({ name, state: waiting ? 'next' : 'done' }));
   let current = phase === 'blocked' ? (started ? '구현' : '계획') : STAGE[phase] ?? '계획';
+  if (current === '리뷰') current = review;
   if (current === '계획' && designPending && names.includes('디자인')) current = '디자인';
   const index = names.indexOf(current);
   return names.map((name, at) => ({ name, state: at < index ? 'done' : at === index ? (blocked ? 'blocked' : 'current') : name === 'QA' && qaPending || name === '구조 자문' && refactorPending ? 'current' : 'next' }));

@@ -4,7 +4,7 @@ import { AppModule } from './app.module.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  if(process.env.MODE === "development"){
+  if (process.env.MODE === 'development') {
     app.enableCors({ origin: process.env.CLIENT_URL ?? 'http://localhost:3000' });
   }
   // TODO: 운영상황일때 cors

@@ -15,6 +15,7 @@
 - Given … When … Then …
 
 ### Design (when story has visual UI)
+- designer 선택 여부·담당: 미선택이면 executor가 아래 시각 세부를 승인된 범위 안에서 구현한다.
 - 2–3 story-specific directions + direction the user chose:
 - Concrete tokens, states, implementation guidance (design.md):
 - Story-folder HTML preview (preview.html, one file updated in place):
@@ -28,18 +29,19 @@ FLOW **시나리오 우선 테스트**를 따른다. 코드 파일 수가 아니
 
 - executor: 기존 테스트 패턴·명령·기대 결과, 선택적 TDD의 첫 RED 대상과 실패 이유(없으면 없음):
 - 추가 unit/컴포넌트 테스트가 필요한 이유·대상(없으면 없음; 단순 controller·일반 UI는 기본 제외):
-- QA 브라우저: 핵심 전체 흐름·실제 연동·반응형/키보드 검증, 필수 `method: "browser"` QA 계약 기준:
+- 브라우저 담당: QA 선택 시 QA와 필수 `method: "browser"` 계약, 미선택 시 executor의 핵심 전체 흐름·실제 연동·반응형/키보드 검증 절차·증거:
 - 환경·데이터·mock: 허용된 비운영 대상·HTTP 경계 실패 주입·준비 방법·정리 범위. 환경 부재는 blocked:
 - 사람 확인 필수 항목과 이유(실기기·감각 판단 등 자동화로 대신할 수 없을 때만, 없으면 '없음'):
 - 학습: 선택 / 기존 필수 / 불필요 (근거와 필요한 산출물)
 
 ## 완료 게이트 정의
 - 정확한 스토리 revision의 사용자 구현 승인 (c2h_plan_next의 실행자·디자이너 인계 선택)
-- 고정 기준 종합 검토와 계획 대비 지적 반영 기록
-- executor 담당 시나리오의 자동 테스트·빌드 실제 증거 (코드 리뷰로 대체 불가)
-- 새 UI 디자인 인계에는 필수 브라우저 기준을 담은 QA 계약과 QA 역할
-- QA 계약의 필수 기준은 수정본 기준 PASS. 브라우저 필수 기준은 QA 직접 실행 증거 (executor 로그·이전 버전 PASS로 대체 불가)
+- 승인 시 고정된 선택 역할의 종합 검토와 계획 대비 지적 반영 기록. 독립 검토 역할이 없으면 executor 검증과 생략 사실 기록
+- executor 담당 시나리오의 자동 테스트·빌드 실제 증거 (독립 리뷰로 대체 불가)
+- QA를 선택한 새 UI 디자인 인계에는 필수 브라우저 기준 QA 계약과 실행 중인 QA 역할. QA 미선택이면 executor의 실제 브라우저 검증 증거
+- 승인된 QA 계약은 현재 버전 PASS가 필수이며 항상 live QA가 수행한다. 브라우저 기준은 실제 브라우저 증거가 필요하다 (executor 로그·이전 버전 PASS로 대체 불가)
 - 사람 확인 필수 항목이 있으면 사용자 확인
+- 선택된 역할 오프라인은 오류. refactor 자문만으로 독립 정확성 검토를 받았다고 표현하지 않음
 - 선택/상속된 학습 게이트 충족 또는 불필요 사유
 
 ## 진행 기록 위치

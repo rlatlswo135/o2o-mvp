@@ -9,35 +9,22 @@ import { fit, columns, clean } from './terminal.mjs';
 import { renderConsole, colorMode } from './console-ui.mjs';
 import { roleAlert, roleStatus, pose, pipeline, quietTracker, stallTracker, reviveTracker } from './signals.mjs';
 import { displayUsage } from './usage.mjs';
+import { workflowLabel } from './workflow.mjs';
 export { fit } from './terminal.mjs';
 
-// Workflow decisions, not detection of native permission dialogs or model activity.
-export function workflowHints(status, quality) {
-  const alerts = {}, executor = status.roles.executor?.action, planner = status.roles.planner?.action;
-  if (status.phase === 'blocked' || executor === 'blocked' || status.errors?.length) return { alerts: { executor: '진행 중단 — 상태·원인 확인 필요' }, next: ['사용자'], reason: 'blocked' };
-  const task = status.refactor?.task;
-  if (task) {
-    const target = task.phase === 'proposed' ? 'refactor' : task.phase === 'reviewing' ? 'reviewer' : 'executor';
-    const label = { proposed: '독립 수정안 — 논의·승인 대기', approved: '독립 리팩터링 — 승인 범위 수정·검증', executing: '독립 리팩터링 — 승인 범위 수정·검증', reviewing: '독립 리팩터링 리뷰 — 동작·범위·검증 확인', reviewed: '리팩터링 리뷰 결과 판단 — 반영 또는 종료', fixing: '리팩터링 리뷰 지적 반영·재검증', done: '독립 수정 완료 — 임시 기록 정리' }[task.phase];
-    return { alerts: { [target]: label }, next: [target], reason: task.phase === 'proposed' ? 'workflow' : 'auto' };
-  }
-  if (status.checkpoint?.verification && quality?.request && status.phase === 'implementation_done' && status.checkpoint.verified_baseline !== quality.request.baseline)
-    return { alerts: { executor: '수정 재리뷰·QA 재검증 자동 요청 — 이전 PASS 재사용 불가' }, next: ['executor'], reason: 'auto' };
-  if (quality?.pending?.length) return { alerts, next: quality.pending, reason: 'checks' };
-  // select_story (executor) and plan with a planning story (planner) are roles at rest: their pickers open only on a user
-  // command or a returned design, and then the native dialog signals. Other roles may be working on the story meanwhile.
-  // From implementation to completion the executor moves on its own; these steps alert only when it rests there (signals).
-  if (status.roles.executor?.auto_stopped) return { alerts: { executor: status.roles.executor.qa_amendment ? 'QA 테스트 수정안 — 사용자 승인 필요' : '리뷰 한도 도달 — 사용자 선택 필요' }, next: ['사용자'], reason: 'workflow' };
-  const completion = { recheck: '반영 검증 — 수정 재리뷰 자동 요청', apply: '재리뷰 회신 — 자동 반영', done: '반영 검증 — 자동 완료' }[status.roles.executor?.auto];
-  const steps = { implementation_choices: '구현 완료 — 종합 검토 자동 요청', brief: '리뷰 회신 — 브리핑 후 자동 반영', review_decision: '계획 대비 리뷰 자동 반영', completion_choices: completion };
-  if (steps[executor]) alerts.executor = steps[executor];
-  if (planner === 'plan_next' && !status.roles.planner.result) alerts.planner = '완료 결과 자동 정리';
-  if (alerts.executor && status.checkpoint?.verification) alerts.executor += ' · 완료는 현재 QA PASS 필요';
-  if (Object.keys(alerts).length) return { alerts, next: Object.keys(alerts), reason: 'auto' };
-  // A compacted story waits for the user's next request to the planner.
-  if (planner === 'plan_next') return { alerts, next: ['사용자'], reason: 'workflow' };
-  const next = status.phase === 'planning' || status.phase === 'done' ? ['planner'] : status.phase === 'reviewing' || status.phase === 'review_ready' ? ['reviewer'] : ['executor'];
-  return { alerts, next, reason: 'workflow' };
+// Presentation only: role ownership and unfinished work come from runtime's common projection.
+export function workflowHints(status) {
+  if ((status.workflow?.phase ?? status.phase) === 'blocked' || status.errors?.length) return { alerts: { executor: status.errors?.[0] ?? '진행 중단 — 상태·원인 확인 필요' }, next: ['사용자'], reason: 'blocked' };
+  const tasks = Object.values(status.roles).map(state => state.work).filter(Boolean);
+  const active = tasks.filter(task => ['ready', 'offered', 'running'].includes(task.status));
+  const held = tasks.filter(task => ['blocked', 'waiting_user'].includes(task.status));
+  const shown = active.length ? active : held;
+  const labels = { implement: '승인 범위 구현', executor_step: '검증된 자동 단계', quality: '고정 버전 검토', review: '코드 검토', plan: '계획·사용자 승인', plan_feedback: '디자인 요구 재검토', qa_feedback: 'QA 계약 준비 확인', design: '설계 준비', design_ready: '저장된 설계 인계', qa_contract: 'QA 계약 준비', qa_notify: 'QA 준비 알림 복구', complete: '완료 정리', discussion: '후속 논의 — 구현 승인 아님', refactor_discuss: '독립 수정안 논의', refactor_implement: '승인된 독립 수정·검증', refactor_review: '독립 수정 리뷰', refactor_decision: '독립 수정 종료 판단', refactor_cleanup: '독립 수정 정리' };
+  const automatic = { quality: '구현 완료 — 종합 검토 자동 요청', recheck: '반영 검증 — 수정 재리뷰 자동 요청', brief: '리뷰 회신 — 브리핑 후 자동 반영', apply: '계획 대비 리뷰 자동 반영', done: '검증 완료 — 자동 완료', aggregate: '저장된 보고서 종합 회신 복구' };
+  const label = task => task.kind === 'executor_step' && task.stage === 'decision' && status.roles.executor?.qa_amendment ? 'QA 테스트 수정안 — 사용자 승인 필요' : task.reason ?? (task.kind === 'executor_step' ? automatic[task.stage] : null) ?? labels[task.kind] ?? task.kind;
+  const alerts = Object.fromEntries(shown.map(task => [task.role, label(task)]));
+  const reason = !active.length && held.some(task => task.status === 'blocked') ? 'blocked' : !active.length || shown.some(task => task.requires_user) ? 'workflow' : 'auto';
+  return { alerts, next: active.length ? active.map(task => task.role) : ['사용자'], reason };
 }
 
 export function boardState(root, { env = process.env, live = () => liveRoles(root, env) } = {}) {
@@ -48,10 +35,13 @@ export function boardState(root, { env = process.env, live = () => liveRoles(roo
   let seen = {}; try { seen = runtime.consoleView(root).seen; } catch {}
   // A compacted story leaves the planner waiting for the user's next story, not summarizing (on a clone the completion
   // request stayed on the other machine, so the planner is simply done).
-  const action = role => role === 'planner' && ['plan_next', 'done'].includes(status.roles.planner?.action) && status.roles.planner.result ? 'await_story' : status.roles[role]?.action ?? 'unknown';
-  const roles = selected.map(role => ({ role, agent: layout.agents[role], inbox: status.inbox[role]?.length ?? 0, mail: mail(status.inbox[role]), live: running.includes(role), state: action(role), seen: seen[role] ?? 0, ...roleSignals(root, role) }));
-  for (const row of roles) if (!row.live && row.inbox) attention.push(`${row.role}: ${row.inbox} pending; role unavailable`);
-  for (const role of Object.keys(status.inbox)) if (!selected.includes(role) && status.inbox[role]?.length) issue(`${role}: ${status.inbox[role].length} inbox messages; role not selected`);
+  const action = role => status.roles[role]?.work?.kind ?? (role === 'planner' && ['plan_next', 'done'].includes(status.roles.planner?.action) && status.roles.planner.result ? 'await_story' : status.roles[role]?.action ?? 'unknown');
+  const roles = selected.map(role => ({ role, agent: layout.agents[role], inbox: status.inbox[role]?.length ?? 0, mail: mail(status.inbox[role]), live: running.includes(role), state: action(role), work: status.roles[role]?.work, workflow: status.roles[role]?.workflow, seen: seen[role] ?? 0, ...roleSignals(root, role) }));
+  for (const row of roles) if (!row.live && (row.inbox || row.work)) attention.push(`${row.role}: unfinished ${row.work?.kind ?? 'messages'}; role unavailable`);
+  for (const role of Object.keys(status.inbox)) if (!selected.includes(role)) {
+    const pending = status.inbox[role]?.filter(message => !(role === 'reviewer' && message.kind === 'review_request' && message.checks && !message.checks.includes('reviewer'))) ?? [];
+    if (pending.length) issue(`${role}: ${pending.length} inbox messages; role not selected`);
+  }
   // Review status matters only while reports are being collected: after the review the executor edits source on
   // purpose (fixes, done), so checking the frozen baseline then would raise a false "source changed" problem.
   const request = ['reviewing', 'review_ready', 'review_decision'].includes(status.phase) ? status.checkpoint?.request_id : null;
@@ -60,7 +50,7 @@ export function boardState(root, { env = process.env, live = () => liveRoles(roo
     try { quality = runtime.qualityStatus(root, request); if (quality.pending.length) attention.push(`Checks pending: ${quality.pending.join(', ')}`); }
     catch (error) { if (!/Not a batch review request/.test(error.message)) issue(error.message); }
   }
-  const hints = workflowHints(status, quality);
+  const hints = workflowHints(status);
   hints.next = [...new Set(hints.next.map(role => role === '사용자' || roles.some(row => row.role === role) ? role : '사용자'))];
   for (const row of roles) { row.alert = hints.alerts[row.role] ?? null; row.hint = row.alert ? hints.reason : null; if (row.alert && hints.reason !== 'auto') attention.unshift(`${row.role}: ${row.alert}`); }
   if (!status.refactor?.task && status.refactor?.advice.length) {
@@ -76,15 +66,11 @@ export function boardState(root, { env = process.env, live = () => liveRoles(roo
   if (diagnostics.drift) for (const [kind, files] of Object.entries(diagnostics.drift)) if (files.length) issue(`${kind}: ${files.join(', ')}`);
   if (diagnostics.drift && diagnostics.next) issue(diagnostics.next);
   const story = status.story ?? diagnostics.story;
-  let designPending = false;
-  if (status.story && status.phase === 'planning' && selected.includes('designer')) try { designPending = runtime.designPending(root, status.story); } catch {}
-  // While a requested design is still open the planner waits for the designer, so the designer is next.
-  if (designPending && hints.reason === 'workflow') hints.next = ['designer'];
-  const stage = { designPending, qaPending: Boolean(quality?.pending?.includes('qa')), refactorPending: Boolean(quality?.pending?.includes('refactor')), blocked: status.phase === 'blocked' || hints.reason === 'blocked', started: Boolean(status.checkpoint?.approval) };
+  const stage = { designPending: status.workflow?.phase === 'planning' && status.workflow.pending.includes('designer'), qaPending: Boolean(status.workflow?.pending.includes('qa')), refactorPending: Boolean(status.workflow?.pending.includes('refactor')), blocked: status.phase === 'blocked' || hints.reason === 'blocked', started: Boolean(status.checkpoint?.approval) };
   let usage = null; try { usage = displayUsage(env); } catch {}
   // A finished story's result.md headline, "한 일" lines and checks for the complete screen.
   let outcome = null; if (status.phase === 'done' && status.story) try { outcome = runtime.storyOutcome(root, status.story); } catch {}
-  return { story, phase: status.phase, refactor: status.refactor, outcome, workflow: JSON.stringify(status.checkpoint ?? null), next: hints.next, attention: [...new Set(attention)], problems: [...new Set(problems)], stories, roles, stage, usage, diagnostics, session: sessionName(root), root };
+  return { story, phase: status.phase, refactor: status.refactor, outcome, workflow: status.workflow, next: hints.next, attention: [...new Set(attention)], problems: [...new Set(problems)], stories, roles, stage, usage, diagnostics, session: sessionName(root), root };
 }
 
 // The oldest unread inbox message, named for the console's bubble edge.
@@ -125,7 +111,7 @@ function roleSignals(root, role) {
 export function renderBoard(state, width = 80, height = Infinity, { color = false } = {}) {
   width = Math.max(1, width); height = Math.max(1, height);
   if (state.detail) return [...JSON.stringify(state.detail, null, 2).split('\n').slice(0, Math.max(0, height - 1)), 'd: back | r: refresh | q: quit'].map(line => fit(line, width)).join('\n');
-  const title = `${state.story ?? 'No active story'} | ${state.phase ?? 'planning'}`;
+  const title = `${state.story ?? 'No active story'} | ${workflowLabel(state.workflow) ?? state.phase ?? 'planning'}`;
   const lines = [`c2kim harness | ${state.root ? path.basename(state.root) + ' | ' : ''}${title}`, `다음: ${(state.next ?? []).join(' + ') || '상태 확인'}`, '', 'ATTENTION'];
   lines.push(...(state.notice ? [`! ${state.notice}`] : []), ...(state.attention.length ? state.attention.map(item => `! ${item}`) : state.notice ? [] : ['  Clear']));
   lines.push('', 'BOARD');
@@ -160,7 +146,7 @@ export function consoleModel(state, { now = Date.now(), cursor = 0, notice = nul
   });
   // Once its complete screen is closed (Enter), a finished story is history and the board waits for the next one.
   const celebrating = Boolean(victory) && state.phase === 'done' && state.story === victory.story, waiting = state.phase === 'done' && !celebrating;
-  return { project: state.root ?? null, story: state.story ?? null, phase: state.phase, waiting, next: state.next ?? [], pipeline: pipeline({ story: state.story, phase: state.phase, roles: roles.map(row => row.role), ...state.stage, waiting }),
+  return { project: state.root ?? null, story: state.story ?? null, phase: state.phase, ...(state.workflow ? { workflow: state.workflow, phaseLabel: workflowLabel(state.workflow) } : {}), waiting, next: state.next ?? [], pipeline: pipeline({ story: state.story, phase: state.phase, roles: roles.map(row => row.role), ...state.stage, waiting }),
     problems: state.problems ?? [], notice, usage: state.usage ?? null, roles, selected: cursor,
     // settled: the planner has turned the story into result.md and waits for the next one; settledAt: since when, in scene time.
     victory: celebrating
@@ -168,7 +154,7 @@ export function consoleModel(state, { now = Date.now(), cursor = 0, notice = nul
         settledAt: Number.isFinite(victory.settledAt) ? Math.max(0, victory.settledAt - victory.at) / 1000 : null } : null };
 }
 
-const settled = state => (state.roles ?? []).find(row => row.role === 'planner')?.state === 'await_story';
+const settled = state => state.workflow ? state.workflow.domain === 'story' && state.workflow.phase === 'done' && !state.workflow.pending.length : (state.roles ?? []).find(row => row.role === 'planner')?.state === 'await_story';
 
 // Console keys. There is deliberately no quit key: q, Esc and Ctrl-C do nothing. Enter on the complete screen closes it.
 export function reduceConsoleKey(cursor, count, key, { celebrating = false } = {}) {
@@ -266,7 +252,7 @@ export async function showConsole(root, { input = process.stdin, output = proces
       const seen = runtime.consoleView(root).seen;
       for (const row of state.roles) Object.assign(row, roleSignals(root, row.role), { seen: seen[row.role] ?? 0 });
       quiet = track(state.roles.map(row => ({ role: row.role, working: row.live && row.presence?.state === 'working' })));
-      stalled = stall(state.roles.map(row => ({ role: row.role, key: row.hint === 'auto' && row.live && row.presence?.state === 'idle' ? row.state : null })));
+      stalled = stall(state.roles.map(row => ({ role: row.role, key: row.hint === 'auto' && row.live && row.presence?.state === 'idle' ? row.work?.key ?? row.state : null })));
       for (const row of state.roles) Object.assign(row, { quiet: quiet[row.role] ?? false, stalled: stalled[row.role] ?? false });
       for (const role of revive(state.roles)) if (env.C2KIM_NOTIFY !== 'off') try { ping(role, '응답 오류 · 자동 재개'); } catch {}
     });

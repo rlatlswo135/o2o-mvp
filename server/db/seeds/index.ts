@@ -1,7 +1,7 @@
-import { glob } from 'node:fs/promises';
-
 import type { FunctionsVersioning, InferCallbackType } from 'drizzle-seed';
+
 import { reset, seed } from 'drizzle-seed';
+import { glob } from 'node:fs/promises';
 
 import { db } from '../index.ts';
 import * as schema from '../schemas/index.ts';

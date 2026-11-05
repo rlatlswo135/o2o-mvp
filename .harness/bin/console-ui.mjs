@@ -374,7 +374,7 @@ export function renderConsole(state, width = 80, height = 24, { color = null, no
   // Pipeline and story sit under the cards, where a tall pane otherwise leaves empty space.
   const status = [[], ...(state.pipeline ? (pixel && chips(state.pipeline, cardWidth, t)) || pipelineRows(state.pipeline, width) : [])];
   const alerts = roles.filter(row => row.alert).length, count = alerts ? [` ! 알림 ${alerts} `, 'bold', 'white', 'bg:alert'] : null;
-  const story = state.story ? [[' '], [state.story, 'bold'], [` · ${state.phaseLabel ?? phases[state.phase] ?? state.phase ?? ''} · 다음 ${(state.next ?? []).join(' + ') || '확인'}`, 'fg:dim']] : [[' 활성 스토리 없음', 'fg:dim']];
+  const story = state.story ? [[' '], [state.story, 'bold'], [` · ${state.phaseLabel ?? phases[state.phase] ?? state.phase ?? ''} · 다음 ${(state.next ?? []).join(' + ') || '확인'}`, 'fg:dim']] : [[state.phaseLabel ? ` ${state.phaseLabel}` : ' 활성 스토리 없음', 'fg:dim']];
   const waiting = [[' '], ['다음 스토리 대기', 'bold'], [` · 지난 ${state.story} 완료 → result.md · 다음 ${(state.next ?? []).join(' + ') || 'planner'}`, 'fg:dim']];
   if (state.phase === 'done' && state.story && state.waiting) status.push(count ? [...padded(waiting, Math.max(0, cardWidth - size(count[0]))), count] : waiting);
   else if (state.phase === 'done' && state.story) status.push(...doneBanner(state, cardWidth, frame, count));

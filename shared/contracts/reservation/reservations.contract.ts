@@ -4,12 +4,12 @@ import { z } from "zod";
 
 import {
   reservationCancelledSchema,
-  reservationCancelSchema,
+  reservationCancelInputSchema,
   reservationInputSchema,
-  reservationListInputSchema,
+  reservationListQuerySchema,
   reservationRejectionSchema,
   reservationSchema,
-  reservationUpdateSchema,
+  reservationUpdateInputSchema,
 } from "./reservations.schema.ts";
 
 // 오류 구분: 없는 예약 404, 이미 취소된 예약 409(확인한 예약 포함), 서버가 확정한 입력 거부 422(사유 포함).
@@ -17,7 +17,7 @@ import {
 export const reservationsContract = {
   list: oc
     .meta(openapi({ method: "GET", path: "/reservations" }))
-    .input(reservationListInputSchema)
+    .input(reservationListQuerySchema)
     .output(z.array(reservationSchema)),
   create: oc
     .meta(openapi({ method: "POST", path: "/reservations", successStatus: 201 }))
@@ -26,7 +26,7 @@ export const reservationsContract = {
     .errors({ UNPROCESSABLE_CONTENT: { data: reservationRejectionSchema } }),
   update: oc
     .meta(openapi({ method: "PUT", path: "/reservations/{id}" }))
-    .input(reservationUpdateSchema)
+    .input(reservationUpdateInputSchema)
     .output(reservationSchema)
     .errors({
       NOT_FOUND: {},
@@ -35,7 +35,7 @@ export const reservationsContract = {
     }),
   cancel: oc
     .meta(openapi({ method: "POST", path: "/reservations/{id}/cancel" }))
-    .input(reservationCancelSchema)
+    .input(reservationCancelInputSchema)
     .output(reservationSchema)
     .errors({ NOT_FOUND: {}, CONFLICT: { data: reservationCancelledSchema } }),
 };

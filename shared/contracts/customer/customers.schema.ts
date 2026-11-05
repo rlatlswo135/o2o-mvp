@@ -25,8 +25,8 @@ export const customerInputSchema = z.object({
     .pipe(z.string().regex(/^\d{8,15}$/, "전화번호는 8~15자리 숫자로 입력해주세요.")),
 });
 
-export const customerUpdateSchema = customerInputSchema.extend(customerIdSchema.shape)
+export const customerUpdateInputSchema = customerInputSchema.extend(customerIdSchema.shape)
 
 export type Customer = z.output<typeof customerSchema>;
 export type CustomerInput = z.output<typeof customerInputSchema>;
-export type CustomerUpdate = z.output<typeof customerUpdateSchema>
+export type CustomerUpdateInput = z.output<typeof customerUpdateInputSchema>

@@ -184,7 +184,8 @@ function logLines(G, P, x, y, w, max, t0) {
 // Checks, not achievements: each line is something the harness verified for this story.
 function checkLines(G, P, x, y, t0) {
   const { tau } = P, { rounds = null, max = 3, qa = false } = P.outcome ?? {}, lines = [];
-  if (rounds != null) {
+  if (P.outcome?.independent === false) lines.push([['✔ 검증 ', DIM], ['독립 검토 생략', FGT]]);
+  else if (rounds != null) {
     const dots = Math.max(max, rounds);
     lines.push([['⚔ 리뷰 ', DIM], ...Array.from({ length: dots }, (_, k) => [k < rounds ? '●' : '○', k < rounds ? ROLE_COLOR.reviewer : LINE]), [` ${rounds}/${max}라운드`, FGT]]);
   }

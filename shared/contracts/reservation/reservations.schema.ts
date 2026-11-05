@@ -6,20 +6,6 @@ import { kst, minuteMs } from "../../date/kst.ts";
 export const minYear = 2000;
 export const maxYear = 2099;
 
-const isSupportedYear = (year: number) => year >= minYear && year <= maxYear;
-
-export function isSupportedDate(text: string) {
-  const date = kst.parseDate(text);
-  return date !== null && isSupportedYear(date.year);
-}
-
-// HH:MM 입력과 같아야 하므로 분 경계만 받는다. 초·밀리초가 숨은 시작 시각은 예약할 수 없다
-function isSupportedStartAt(ms: number) {
-  if (!Number.isSafeInteger(ms) || ms % minuteMs !== 0) return false;
-  const startAt = kst(ms);
-  return startAt.isValid() && isSupportedYear(startAt.year);
-}
-
 // id 컬럼은 Postgres integer라서 그 범위를 넘는 값은 DB 오류(500) 대신 입력 오류(400)로 돌려준다.
 const recordIdSchema = z.number().int().positive().max(2_147_483_647);
 
@@ -52,10 +38,13 @@ export const reservationIdSchema = z.object({
   id: z.coerce.number().int().positive().max(2_147_483_647),
 });
 
-export const reservationListInputSchema = z.object({
+export const reservationListQuerySchema = z.object({
   date: z
     .string()
-    .refine(isSupportedDate, `${minYear}~${maxYear}년 사이의 날짜만 조회할 수 있어요.`),
+    .refine(
+      isSupportedDate,
+      `${minYear}~${maxYear}년 사이의 날짜만 조회할 수 있어요.`,
+    ),
   includeCancelled: z.stringbool().default(false),
 });
 
@@ -65,7 +54,10 @@ export const reservationInputSchema = z.object({
   treatmentIds: z
     .array(recordIdSchema)
     .min(1, "시술을 1개 이상 선택해주세요.")
-    .refine((ids) => new Set(ids).size === ids.length, "같은 시술을 두 번 선택할 수 없어요."),
+    .refine(
+      (ids) => new Set(ids).size === ids.length,
+      "같은 시술을 두 번 선택할 수 없어요.",
+    ),
   startAt: z
     .number()
     .int()
@@ -75,10 +67,12 @@ export const reservationInputSchema = z.object({
     ),
 });
 
-export const reservationUpdateSchema = reservationInputSchema.extend(reservationIdSchema.shape);
+export const reservationUpdateInputSchema = reservationInputSchema.extend(
+  reservationIdSchema.shape,
+);
 
 // 클라이언트가 parse한 값을 서버가 다시 parse한다. 공백만 있으면 사유 없음이다.
-export const reservationCancelSchema = reservationIdSchema.extend({
+export const reservationCancelInputSchema = reservationIdSchema.extend({
   reason: z
     .string()
     .trim()
@@ -99,13 +93,35 @@ export const reservationRejectionSchema = z.discriminatedUnion("reason", [
 ]);
 
 // 이미 취소된 예약(409). 재조회에 기대지 않도록 서버가 확인한 예약을 함께 준다
-export const reservationCancelledSchema = z.object({ reservation: reservationSchema });
+export const reservationCancelledSchema = z.object({
+  reservation: reservationSchema,
+});
 
 export type Reservation = z.output<typeof reservationSchema>;
 export type ReservationCustomer = z.output<typeof reservationCustomerSchema>;
 export type ReservationTreatment = z.output<typeof reservationTreatmentSchema>;
-export type ReservationListInput = z.input<typeof reservationListInputSchema>;
+export type ReservationListQuery = z.input<typeof reservationListQuerySchema>;
 export type ReservationInput = z.output<typeof reservationInputSchema>;
-export type ReservationUpdate = z.output<typeof reservationUpdateSchema>;
-export type ReservationCancel = z.output<typeof reservationCancelSchema>;
+export type ReservationUpdateInput = z.output<
+  typeof reservationUpdateInputSchema
+>;
+export type ReservationCancelInput = z.output<
+  typeof reservationCancelInputSchema
+>;
 export type ReservationRejection = z.output<typeof reservationRejectionSchema>;
+
+function isSupportedYear(year: number) {
+  return year >= minYear && year <= maxYear;
+}
+
+export function isSupportedDate(text: string) {
+  const date = kst.parseDate(text);
+  return date !== null && isSupportedYear(date.year);
+}
+
+// HH:MM 입력과 같아야 하므로 분 경계만 받는다. 초·밀리초가 숨은 시작 시각은 예약할 수 없다
+function isSupportedStartAt(ms: number) {
+  if (!Number.isSafeInteger(ms) || ms % minuteMs !== 0) return false;
+  const startAt = kst(ms);
+  return startAt.isValid() && isSupportedYear(startAt.year);
+}

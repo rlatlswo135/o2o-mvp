@@ -1,4 +1,4 @@
-import type { Customer, CustomerInput, CustomerUpdate } from '@o2o/shared/contracts';
+import type { Customer, CustomerInput, CustomerUpdateInput } from '@o2o/shared/contracts';
 
 import { customers } from '@db/schemas/customers.schema.js';
 import { Injectable } from '@nestjs/common';
@@ -39,7 +39,10 @@ export class CustomersRepository {
   }
 
   /** 없는 id면 undefined, 다른 고객이 이미 쓰는 전화번호면 'duplicate'를 돌려준다. */
-  async update({ id, ...values }: CustomerUpdate): Promise<Customer | 'duplicate' | undefined> {
+  async update({
+    id,
+    ...values
+  }: CustomerUpdateInput): Promise<Customer | 'duplicate' | undefined> {
     try {
       const [customer] = await this.db
         .update(customers)

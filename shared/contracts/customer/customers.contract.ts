@@ -6,7 +6,7 @@ import {
   customerIdSchema,
   customerInputSchema,
   customerSchema,
-  customerUpdateSchema,
+  customerUpdateInputSchema,
 } from "./customers.schema.ts";
 
 // path와 query 값은 문자열로 들어오므로 숫자와 불리언은 여기서 변환한다.
@@ -32,7 +32,7 @@ export const customersContract = {
     .errors({ NOT_FOUND: {} }),
   update: oc
     .meta(openapi({ method: "PUT", path: "/customers/{id}" }))
-    .input(customerUpdateSchema)
+    .input(customerUpdateInputSchema)
     .output(customerSchema)
     .errors({ NOT_FOUND: {}, CONFLICT: {} }),
 };

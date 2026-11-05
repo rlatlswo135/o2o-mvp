@@ -1,4 +1,4 @@
-import type { Customer, CustomerInput, CustomerUpdate } from '@o2o/shared/contracts';
+import type { Customer, CustomerInput, CustomerUpdateInput } from '@o2o/shared/contracts';
 
 import { Injectable } from '@nestjs/common';
 
@@ -34,7 +34,7 @@ export class CustomersService {
     return deleted ? { kind: 'deleted' } : { kind: 'not_found' };
   }
 
-  async updateCustomer(input: CustomerUpdate): Promise<UpdateCustomerResult> {
+  async updateCustomer(input: CustomerUpdateInput): Promise<UpdateCustomerResult> {
     const result = await this.customers.update(input);
     if (result === 'duplicate') return { kind: 'duplicate' };
     return result ? { kind: 'updated', customer: result } : { kind: 'not_found' };

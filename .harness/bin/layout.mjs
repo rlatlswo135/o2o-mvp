@@ -13,8 +13,10 @@ const MAX_BYTES = 16 * 1024;
 export function validateLayout(layout) {
   if (!layout || typeof layout !== 'object' || Array.isArray(layout) || !Array.isArray(layout.roles) || layout.roles.length < 1 ||
       layout.roles.some(role => !ROLES.includes(role)) || new Set(layout.roles).size !== layout.roles.length) throw new Error('Invalid role/layout configuration.');
+  if (!['planner', 'executor'].every(role => layout.roles.includes(role))) throw new Error('Both planner and executor roles are required.');
   const given = layout.agents ?? {};
   if (typeof given !== 'object' || Array.isArray(given) || Object.entries(given).some(([role, agent]) => !layout.roles.includes(role) || !AGENTS.includes(agent))) throw new Error('Invalid agent configuration.');
+  if (given.executor !== undefined && given.executor !== 'claude') throw new Error('executor requires Claude Code (claude).');
   return { roles: [...layout.roles], agents: Object.fromEntries(layout.roles.map(role => [role, given[role] ?? defaultAgent(role)])) };
 }
 

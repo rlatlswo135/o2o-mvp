@@ -1,4 +1,4 @@
-import type { Customer, CustomerInput, CustomerUpdate } from "@o2o/shared/contracts";
+import type { Customer, CustomerInput, CustomerUpdateInput } from "@o2o/shared/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 
 import { isDefinedError, safe } from "@orpc/client";
@@ -64,7 +64,7 @@ export type UpdateResult =
 // 수정 후 목록 반영, 이미 없는 고객이면 목록에서 내림
 export async function updateCustomer(
   queryClient: QueryClient,
-  input: CustomerUpdate,
+  input: CustomerUpdateInput,
 ): Promise<UpdateResult> {
   const { error, data: customer } = await safe(api.customers.update(input));
   if (error) {

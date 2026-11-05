@@ -12,7 +12,9 @@ export async function selectRoles({ input = process.stdin, output = process.stdo
   const draw = () => {
     if (rendered) moveCursor(output, 0, -rendered);
     cursorTo(output, 0); clearScreenDown(output);
-    const lines = ['역할 선택 — ↑↓ 이동 · Space 선택 · ←→ 에이전트 · Enter 진행 · Esc 취소', ...ROLES.map((role, i) => `${i === current ? '>' : ' '} [${selected.has(role) ? 'x' : ' '}] ${role.padEnd(9)} ${agents[role]}`)];
+    const lines = ['역할 선택 — ↑↓ 이동 · Space 선택 · ←→ 에이전트 · Enter 진행 · Esc 취소', ...ROLES.map((role, i) => `${i === current ? '>' : ' '} [${selected.has(role) ? 'x' : ' '}] ${role.padEnd(9)} ${agents[role]}${['planner', 'executor'].includes(role) ? ' (필수)' : ''}`),
+      'designer·QA 미선택: executor가 시각 구현·브라우저 검증 담당',
+      'reviewer 미선택: 독립 코드 리뷰 생략 (리팩터링 포함)'];
     if (warning) lines.push(warning);
     const width = Math.max(1, (output.columns || 80) - 1);
     output.write(lines.map(line => fit(line, width)).join('\n') + '\n'); rendered = lines.length;
@@ -26,8 +28,16 @@ export async function selectRoles({ input = process.stdin, output = process.stdo
         if (key.ctrl && ['c', 'd'].includes(key.name) || key.name === 'escape') return ended();
         if (key.name === 'up') current = (current + ROLES.length - 1) % ROLES.length;
         else if (key.name === 'down') current = (current + 1) % ROLES.length;
-        else if (key.name === 'left' || key.name === 'right') { const role = ROLES[current]; agents[role] = AGENTS[(AGENTS.indexOf(agents[role]) + 1) % AGENTS.length]; }
-        else if (key.name === 'space') { const role = ROLES[current]; selected.has(role) ? selected.delete(role) : selected.add(role); }
+        else if (key.name === 'left' || key.name === 'right') {
+          const role = ROLES[current];
+          if (role === 'executor') { warning = 'executor는 Claude Code로 실행합니다.'; draw(); return; }
+          agents[role] = AGENTS[(AGENTS.indexOf(agents[role]) + 1) % AGENTS.length];
+        }
+        else if (key.name === 'space') {
+          const role = ROLES[current];
+          if (['planner', 'executor'].includes(role)) { warning = 'planner·executor는 필수 역할입니다.'; draw(); return; }
+          selected.has(role) ? selected.delete(role) : selected.add(role);
+        }
         else if (key.name === 'return' || key.name === 'enter') {
           if (!selected.size) { warning = '역할을 하나 이상 선택하세요.'; draw(); return; }
           const roles = ROLES.filter(role => selected.has(role));
